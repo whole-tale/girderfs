@@ -13,6 +13,7 @@ from stat import S_IFDIR, S_IFREG
 from errno import ENOENT
 # http://stackoverflow.com/questions/9144724/
 import encodings.idna  # NOQA pylint: disable=unused-import
+from encodings import hex_codec  # NOQA pylint: disable=unused-import
 
 from dateutil.parser import parse as tparse
 import diskcache
