@@ -20,6 +20,8 @@ import diskcache
 from fuse import Operations, LoggingMixIn, FuseOSError
 import girder_client
 import requests
+import threading
+from bson import objectid
 
 # logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
 
@@ -261,6 +263,230 @@ class RESTGirderFS(GirderFS):
         logging.debug("-> release({}, {})".format(path, self.fd))
         self.fd -= 1
         return self.fd
+
+class DownloadThread(threading.Thread):
+    def __init__(self, stream, fdict, lock):
+        threading.Thread.__init__(self)
+        self.stream = stream
+        self.fdict = fdict
+        self.lock = lock
+
+    def run(self):
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            self.fdict['path'] = tmp.name
+            for chunk in self.stream.iter_content(chunk_size=65536):
+                tmp.write(chunk)
+                self.fdict['written'] += len(chunk)
+        with self.lock:
+            self.fdict['downloaded'] = True
+            self.fdict['downloading'] = False
+
+
+class WtDmsGirderFS(GirderFS):
+    """
+    Filesystem for locally mounting a remote Girder folder
+
+    :param sessionId: WT DMS session id
+    :type sessoinId: str
+    :param gc: Authenticated instance of GirderClient
+    :type gc: girder_client.GriderClient
+    """
+
+    def __init__(self, sessionId, gc):
+        GirderFS.__init__(self, sessionId, gc)
+        self.sessionId = sessionId
+        self.flock = threading.Lock()
+        self.openFiles = {}
+        self.locks = {}
+        self.fobjs = {}
+        self.ctime = int(time.time())
+        self.session = self._load_session_info()
+        # pre-cache the session listing so that base class methods
+        # don't try to do a listing on a folder with the same id
+        self.cache[sessionId] = self._get_session_listing()
+
+    def _load_session_info(self):
+        return self.girder_cli.get('dm/session/%s?loadObjects=true' % self.sessionId)
+
+    def _get_session_listing(self):
+        # mount points can have arbitrary depth, so pre-populate the cache with
+        # the necessary directory structure
+        dict = self._make_dict('/', self.sessionId)
+        dataSet = self.session['dataSet']
+
+        for entry in dataSet:
+            self._add_session_entry(dict, entry)
+
+        return dict['listing']
+
+    def _make_dict(self, name, id=None):
+        if id is None:
+            id = objectid.ObjectId()
+        return {'obj': {'_id': id, 'name': name, 'created': self.ctime},
+                'listing': {'folders': [], 'files':[]},
+                'dirmap': {}}
+
+    def _add_session_entry(self, dict, entry):
+        # assume and strip root slash
+        path = list(pathlib.PurePath(entry['mountPath']).parts)[1:]
+        dirdict = self._mkdirs(dict, path[:-1])
+        if entry['type'] == 'folder':
+            dirdict['listing']['folders'].append(entry['obj'])
+        else:
+            dirdict['listing']['files'].append(entry['obj'])
+
+    def _mkdirs(self, dict, path):
+        if len(path) == 0:
+            return dict
+        crt = path[0]
+        if crt not in dict['dirmap']:
+            cdict = self._make_dict(crt)
+            dict['listing']['folders'].append(cdict)
+            self.cache[cdict['obj']['_id']] = cdict['listing']
+            dict['dirmap'][crt] = cdict
+        else:
+            cdict = dict['dirmap'][crt]
+        return self._mkdirs(cdict, path[1:])
+
+    def read(self, path, size, offset, fh):
+        logging.debug("-> read({})".format(path))
+
+        fdict = self.openFiles[path]
+        obj = fdict['obj']
+        obj = self._wait_for_file(obj)
+
+        if not fdict['downloaded']:
+            download = False
+            with self.flock:
+                if not fdict['downloading']:
+                    download = True
+                    fdict['downloading'] = True
+            if download:
+                self._start_download(path, obj)
+
+        self._wait_for_region(path, fdict, offset, size)
+        if fh not in self.fobjs:
+            self.fobjs[fh] = open(fdict['path'], 'rb')
+        fp = self.fobjs[fh]
+
+        fp.seek(offset)
+        return fp.read(size)
+
+    def _wait_for_file(self, obj):
+        # Waits for the file to be downloaded/cached by the DMS
+        while True:
+            if obj['dm']['cached']:
+                return obj
+            time.sleep(1.0)
+            obj = self._get_item_unfiltered(obj['_id'])
+
+    def _wait_for_region(self, path, fdict, offset, size):
+        # Waits until enough of the file has been downloaded locally
+        # to be able to read the necessary chunk of bytes
+        logging.debug("-> wait_for_region({}, {}, {})".format(path, offset, size))
+        while True:
+            if fdict['downloaded']:
+                return
+            if fdict['written'] >= offset + size:
+                return
+            time.sleep(0.1)
+
+    def _get_item_unfiltered(self, id):
+        return self.girder_cli.get('dm/session/%s/item/%s' % (self.sessionId, id))
+
+    def open(self, path, mode="r", **kwargs):
+        fd = self._next_fd()
+        logging.debug("-> open({}, {})".format(path, fd))
+        obj, _ = self._get_object_by_path(self.folder_id, _lstrip_path(path))
+        obj = self._get_item_unfiltered(self._get_id(obj))
+        self._open(path, fd, obj)
+        return fd
+
+    def _get_id(self, obj):
+        if 'itemId' in obj:
+            return obj['itemId']
+        else:
+            return obj['_id']
+
+    def _next_fd(self):
+        with self.flock:
+            fd = self.fd
+            self.fd += 1
+        return fd
+
+    def _open(self, path, fd, obj):
+        # By default, FUSE uses multiple threads. In our case, single threads are undesirable,
+        # since a single slow open() could prevent any other FS operations from happening.
+        # So make sure shared state is properly synchronized
+        lockId = self._lock(obj)
+        available = obj['dm']['cached']
+        downloaded = False
+        downloading = False
+        with self.flock:
+            if path not in self.openFiles:
+                self.openFiles[path] = {'obj': obj, 'written': 0, 'downloading': False,
+                                        'downloaded': False, 'path': None}
+            else:
+                downloaded = self.openFiles[path]['downloaded']
+                downloading = self.openFiles[path]['downloading']
+                # set downloading flag with lock held
+                if available and not downloading:
+                    self.openFiles[path]['downloading'] = True
+            self.locks[fd] = lockId
+        if not available:
+            # we would need to wait, so delay the waiting until read() is invoked
+            return
+        if downloaded:
+            # file is here, so no need to download again
+            pass
+        else:
+            if downloading:
+                return
+            else:
+                self._start_download(path, self.locks[fd])
+
+    def _start_download(self, path, lockId):
+        with self.flock:
+            self.openFiles[path]['downloading'] = True
+        req = requests.get(
+            '%sdm/lock/%s/download' % (self.girder_cli.urlBase, lockId),
+            headers={'Girder-Token': self.girder_cli.token}, stream=True)
+        thread = DownloadThread(req, self.openFiles[path], self.flock)
+        thread.start()
+
+    def _lock(self, obj):
+        resp = self.girder_cli.post('dm/lock?sessionId=%s&itemId=%s' %
+                                   (self.sessionId, obj['_id']))
+        return resp['_id']
+
+    def _unlock(self, lockId):
+        self.girder_cli.delete('dm/lock/%s' % (lockId))
+
+    def destroy(self, private_data):
+        pass
+
+    def release(self, path, fh):  # pylint: disable=unused-argument
+        logging.debug("-> release({}, {})".format(path, fh))
+
+        lockId = None
+        toClose = None
+        with self.flock:
+            self.fd -= 1
+            if fh in self.locks:
+                lockId = self.locks[fh]
+                del self.locks[fh]
+
+            if fh in self.fobjs:
+                toClose = self.fobjs[fh]
+                del self.fobjs[fh]
+
+        if toClose is not None:
+            toClose.close()
+
+        if lockId is not None:
+            self._unlock(lockId)
+
+        return fh
 
 
 class LocalGirderFS(GirderFS):

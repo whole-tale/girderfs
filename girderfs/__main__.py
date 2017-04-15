@@ -2,7 +2,7 @@
 import argparse
 from girder_client import GirderClient
 from fuse import FUSE
-from girderfs.core import RESTGirderFS, LocalGirderFS
+from girderfs.core import RESTGirderFS, LocalGirderFS, WtDmsGirderFS
 
 
 def main(args=None):
@@ -14,10 +14,10 @@ def main(args=None):
     parser.add_argument('--password', required=False, default=None)
     parser.add_argument('--api-key', required=False, default=None)
     parser.add_argument('--token', required=False, default=None)
-    parser.add_argument('-c', default='remote', choices=['remote', 'direct'],
+    parser.add_argument('-c', default='remote', choices=['remote', 'direct', 'wt_dms'],
                         help='command to run')
     parser.add_argument('local_folder', help='path to local target folder')
-    parser.add_argument('remote_folder', help='Girder\'s folder id')
+    parser.add_argument('remote_folder', help='Girder\'s folder id or a DM session id')
 
     args = parser.parse_args()
 
@@ -37,6 +37,9 @@ def main(args=None):
     elif args.c == 'direct':
         FUSE(LocalGirderFS(args.remote_folder, gc), args.local_folder,
              foreground=False, ro=True, allow_other=True)
+    elif args.c == 'wt_dms':
+        FUSE(WtDmsGirderFS(args.remote_folder, gc), args.local_folder,
+             foreground=True, ro=True, allow_other=True)
     else:
         print('No implementation for command %s' % args.c)
 
