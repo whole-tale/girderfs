@@ -38,6 +38,7 @@ install_requires = ['fusepy', 'girder-client', 'requests', 'python-dateutil',
 if sys.version_info[0] == 2:
     install_requires.append('pathlib')
     install_requires.append('backports.datetime_timestamp')
+    install_requires.append('future')
 
 setup(
     name='girderfs',
