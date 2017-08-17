@@ -8,6 +8,7 @@ import time
 import pathlib
 import logging
 import sys
+import six
 import shutil
 import tempfile
 from stat import S_IFDIR, S_IFREG
@@ -19,7 +20,6 @@ from encodings import hex_codec  # NOQA pylint: disable=unused-import
 from dateutil.parser import parse as tparse
 import diskcache
 from fuse import Operations, LoggingMixIn, FuseOSError
-import girder_client
 import requests
 import threading
 from bson import objectid
@@ -145,7 +145,7 @@ class GirderFS(LoggingMixIn, Operations):
         dirents = ['.', '..']
         raw_listing = self._get_listing_by_path(path)
 
-        for obj_type in raw_listing.keys():
+        for obj_type in list(raw_listing.keys()):
             dirents += [_["name"] for _ in raw_listing[obj_type]]
         return dirents
 
@@ -231,9 +231,9 @@ class GirderFS(LoggingMixIn, Operations):
 
     def destroy(self, private_data):
         logging.debug("-> destroy()")
-        removed = 1
-        while removed > 0:
-            removed = self.cache.clear()
+        not_removed = True
+        while not_removed:
+            not_removed = self.cache.clear()
         self.cache.close()
         shutil.rmtree(self.cachedir)
 
@@ -305,7 +305,7 @@ class DownloadThread(threading.Thread):
         self.stream = stream
         self.fdict = fdict
         self.lock = lock
-        self.limit = sys.maxint
+        self.limit = six.MAXSIZE
         self.fs = fs
 
     def run(self):
@@ -314,7 +314,6 @@ class DownloadThread(threading.Thread):
             #print self.stream.__dict__
             for chunk in self.stream.iter_content(chunk_size=65536):
                 tmp.write(chunk)
-                print '::: ' + chunk
                 self.fdict['written'] += len(chunk)
                 if self.fdict['written'] > self.limit:
                     tmp.truncate(self.limit)
@@ -334,7 +333,7 @@ class DownloadThread(threading.Thread):
         self.limit = length
         if self.fdict['downloaded']:
             # download done, so run() can't truncate if necessary
-            f = open(self.fdict['path'], 'rw+b')
+            f = open(self.fdict['path'], 'a+b')
             f.truncate(length)
             f.close()
 
@@ -382,7 +381,7 @@ class WtDmsGirderFS(GirderFS):
     """
 
     def __init__(self, sessionId, gc):
-        GirderFS.__init__(self, unicode(sessionId), gc)
+        GirderFS.__init__(self, six.text_type(sessionId), gc)
         self.sessionId = sessionId
         self.flock = MLock()
         self.openFiles = {}
@@ -470,10 +469,12 @@ class WtDmsGirderFS(GirderFS):
     def _wait_for_file(self, obj):
         # Waits for the file to be downloaded/cached by the DMS
         while True:
-            if obj['dm']['cached']:
-                return obj
-            time.sleep(1.0)
-            obj = self._get_item_unfiltered(obj['_id'])
+            try:
+                if obj['dm']['cached']:
+                    return obj
+            except KeyError:
+                time.sleep(1.0)
+                obj = self._get_item_unfiltered(obj['_id'])
 
     def _wait_for_region(self, path, fdict, offset, size):
         # Waits until enough of the file has been downloaded locally
@@ -514,7 +515,10 @@ class WtDmsGirderFS(GirderFS):
         # since a single slow open() could prevent any other FS operations from happening.
         # So make sure shared state is properly synchronized
         lockId = self._lock(obj)
-        available = obj['dm']['cached']
+        try:
+            available = obj['dm']['cached']
+        except KeyError:
+            available = False
         with self.flock:
             fdict = self._ensure_fdict(path, obj)
             downloaded = fdict['downloaded']
@@ -555,7 +559,7 @@ class WtDmsGirderFS(GirderFS):
 
     def _lock(self, obj):
         resp = self.girder_cli.post('dm/lock?sessionId=%s&itemId=%s' %
-                                   (self.sessionId, obj['_id']))
+                                    (self.sessionId, obj['_id']))
         return resp['_id']
 
     def _unlock(self, lockId):
@@ -564,7 +568,7 @@ class WtDmsGirderFS(GirderFS):
     def destroy(self, private_data):
         GirderFS.destroy(self, private_data)
 
-        for path in self.openFiles.keys():
+        for path in list(self.openFiles.keys()):
             fdict = self.openFiles[path]
             try:
                 if 'path' in fdict:
@@ -619,7 +623,7 @@ class UploadThread(threading.Thread):
         obj = fdict['obj']
         # this will break if anything writes to the file during upload
         # TODO: cancel uploads when a file is opened w/a
-        fp = open(fdict['path'], 'rw+b')
+        fp = open(fdict['path'], 'a+b')
         fp.seek(0, os.SEEK_END)
         size = fp.tell()
         fp.seek(0, os.SEEK_SET)
@@ -788,7 +792,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
             parentId = self._get_parent_id(path)
             obj = self.cache[parentId]
             lst = obj[type]
-            for i in xrange(len(lst)):
+            for i in range(len(lst)):
                 if lst[i]['name'] == path.name:
                     lst.pop(i)
                     self.cache[parentId] = obj
@@ -803,7 +807,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
     def _create(self, path, parentId, perms):
         logging.debug("-> _create({}, {}, {})".format(path, parentId, perms))
         item = self.girder_cli.createItem(parentId, path.name)
-        print item
+        print(item)
         file = self.girder_cli.post('file', parameters={'parentType': 'item',
                                                         'parentId': item['_id'],
                                                         'name': path.name, 'size': 0})
@@ -877,7 +881,6 @@ class WtHomeGirderFS(WtDmsGirderFS):
         #  - the file is not open
 
         pathObj = _lstrip_path(path)
-        parentId = self._get_parent_id(pathObj)
         obj, objType = self._get_object_by_path(self.folder_id, pathObj)
 
         if objType == 'folder':
@@ -933,7 +936,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
         self._ensure_region_available(path, fdict, fh, offset, size)
 
         if fh not in self.fobjs:
-            self.fobjs[fh] = open(fdict['path'], 'rw+b')
+            self.fobjs[fh] = open(fdict['path'], 'a+b')
         fp = self.fobjs[fh]
 
         # should probably lock this to prevent seek+write sequences from racing
@@ -974,7 +977,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
         logging.debug("-> open(path=%s, mode=%s)" % (path, mode))
         fd = WtDmsGirderFS.open(self, path, mode=mode, **kwargs)
         fdict = self.openFiles[path]
-        if not 'fds' in fdict:
+        if 'fds' not in fdict:
             fdict['fds'] = set()
         return fd
 
