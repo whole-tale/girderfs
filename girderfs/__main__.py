@@ -14,6 +14,7 @@ def main(args=None):
     parser.add_argument('--password', required=False, default=None)
     parser.add_argument('--api-key', required=False, default=None)
     parser.add_argument('--token', required=False, default=None)
+    parser.add_argument('--foreground', dest='foreground', action='store_true')
     parser.add_argument('-c', default='remote', choices=['remote', 'direct', 'wt_dms', 'wt_home'],
                         help='command to run')
     parser.add_argument('local_folder', help='path to local target folder')
@@ -33,16 +34,16 @@ def main(args=None):
 
     if args.c == 'remote':
         FUSE(RESTGirderFS(args.remote_folder, gc), args.local_folder,
-             foreground=False, ro=True, allow_other=True)
+             foreground=args.foreground, ro=True, allow_other=True)
     elif args.c == 'direct':
         FUSE(LocalGirderFS(args.remote_folder, gc), args.local_folder,
-             foreground=False, ro=True, allow_other=True)
+             foreground=args.foreground, ro=True, allow_other=True)
     elif args.c == 'wt_dms':
         FUSE(WtDmsGirderFS(args.remote_folder, gc), args.local_folder,
-             foreground=True, ro=True, allow_other=True)
+             foreground=args.foreground, ro=True, allow_other=True)
     elif args.c == 'wt_home':
         FUSE(WtHomeGirderFS(args.remote_folder, gc), args.local_folder,
-             foreground=True, ro=False, allow_other=True)
+             foreground=args.foreground, ro=False, allow_other=True)
     else:
         print('No implementation for command %s' % args.c)
 
