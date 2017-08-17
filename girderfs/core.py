@@ -55,6 +55,12 @@ class CacheWrapper:
     def __init__(self, cache):
         self.cache = cache
 
+    def get(self, key, *args, **kwargs):
+        return self.cache.get(str(key), *args, **kwargs)
+
+    def set(self, key, *args, **kwargs):
+        return self.cache.set(str(key), *args, **kwargs)
+
     def delete(self, key):
         return self.cache.delete(str(key))
 
@@ -273,7 +279,7 @@ class RESTGirderFS(GirderFS):
         else:
             logging.debug('-> downloading')
             req = requests.get(
-                '%sfile/%s/download' % (self.girder_cli.urlBase, obj["_id"]),
+                '%sitem/%s/download' % (self.girder_cli.urlBase, obj["_id"]),
                 headers={'Girder-Token': self.girder_cli.token}, stream=True)
             with tempfile.NamedTemporaryFile(prefix='wtdm', delete=False) as tmp:
                 for chunk in req.iter_content(chunk_size=65536):
