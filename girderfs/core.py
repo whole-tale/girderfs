@@ -631,6 +631,7 @@ class UploadThread(threading.Thread):
     def _upload(self, path, fdict):
         obj = fdict['obj']
         # this will break if anything writes to the file during upload
+        # same if anything deletes the file. For now, let it fail with an error.
         # TODO: cancel uploads when a file is opened w/a
         fp = open(fdict['path'], 'a+b')
         fp.seek(0, os.SEEK_END)
