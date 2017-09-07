@@ -459,7 +459,7 @@ class WtDmsGirderFS(GirderFS):
 
     def _ensure_region_available(self, path, fdict, fh, offset, size):
         obj = fdict['obj']
-        obj = self._wait_for_file(obj)
+        obj = self._wait_for_file(fdict)
 
         if not fdict['downloaded']:
             download = False
@@ -473,8 +473,9 @@ class WtDmsGirderFS(GirderFS):
 
         self._wait_for_region(path, fdict, offset, size)
 
-    def _wait_for_file(self, obj):
+    def _wait_for_file(self, fdict):
         # Waits for the file to be downloaded/cached by the DMS
+        obj = fdict['obj']
         while True:
             try:
                 if obj['dm']['cached']:
@@ -976,6 +977,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
     def downloadCompleted(self, path, fdict):
         logging.debug("-> downloadCompleted(path=%s)" % (path))
         with self.flock:
+            fdict['cached.locally'] = True
             if len(fdict['fds']) == 0:
                 self._commit(path, fdict)
 
@@ -1011,6 +1013,14 @@ class WtHomeGirderFS(WtDmsGirderFS):
             fdict['uploading'] = True
             self.uploadQueue.put((path, fdict))
             fdict['dirty'] = False
+
+    def _wait_for_file(self, fdict):
+        # Override because, except for the first download, the local
+        # copy is always considered to be the latest
+        if 'cached.locally' in fdict:
+            return
+        else:
+            WtDmsGirderFS._wait_for_file(self, fdict)
 
 class LocalGirderFS(GirderFS):
     """
