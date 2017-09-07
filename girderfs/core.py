@@ -942,7 +942,8 @@ class WtHomeGirderFS(WtDmsGirderFS):
         fdict = self.openFiles[path]
         size = len(data)
 
-        self._ensure_region_available(path, fdict, fh, offset, size)
+        if fdict['downloading']:
+            self._ensure_region_available(path, fdict, fh, offset, size)
 
         if fh not in self.fobjs:
             self.fobjs[fh] = open(fdict['path'], 'a+b')
