@@ -614,6 +614,7 @@ class WtDmsGirderFS(GirderFS):
     def downloadCompleted(self, path, fdict):
         pass
 
+
 class UploadThread(threading.Thread):
     def __init__(self, queue, fs, cli):
         threading.Thread.__init__(self)
@@ -650,7 +651,6 @@ class UploadThread(threading.Thread):
         if len(files) != 1:
             raise Exception('Expected a single file in item %s' % obj['_id'])
         return files[0]
-
 
 
 class WtHomeGirderFS(WtDmsGirderFS):
@@ -980,7 +980,6 @@ class WtHomeGirderFS(WtDmsGirderFS):
             fdict['cached.locally'] = True
             if len(fdict['fds']) == 0:
                 self._commit(path, fdict)
-
 
     def open(self, path, mode=os.O_RDONLY, **kwargs):
         logging.debug("-> open(path=%s, mode=%s)" % (path, mode))
