@@ -76,6 +76,7 @@ class CacheWrapper:
     def close(self):
         self.cache.close()
 
+
 class GirderFS(LoggingMixIn, Operations):
     """
     Base class for handling Girder's folders
