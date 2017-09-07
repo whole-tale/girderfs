@@ -761,10 +761,10 @@ class WtHomeGirderFS(WtDmsGirderFS):
             # and therefore it implies open(..., O_CREAT|O_WRONLY|O_TRUNC).
             #
             # create an empty file locally
-            fdict = self._ensure_fdict(path, obj)
+            fdict = self._ensure_fdict(pathstr, obj)
             with tempfile.NamedTemporaryFile(prefix='wtdm', delete=False) as tmp:
-                fdict['path'] = tmp.file
-            self._mark_dirty(path)
+                fdict['path'] = tmp.name
+            self._mark_dirty(pathstr)
             return self.open(pathstr, mode=os.O_CREAT + os.O_WRONLY + os.O_TRUNC)
 
     def _get_object_id_by_path(self, obj_id, path):
