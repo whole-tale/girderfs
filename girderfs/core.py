@@ -21,6 +21,7 @@ from dateutil.parser import parse as tparse
 import diskcache
 from fuse import Operations, LoggingMixIn, FuseOSError
 import requests
+import datetime
 import threading
 from bson import objectid
 from queue import Queue
@@ -36,6 +37,7 @@ def _lstrip_path(path):
     else:
         return path_obj
 
+
 if sys.version_info[0] == 2:
     def _convert_time(strtime):
         from backports.datetime_timestamp import timestamp
@@ -43,6 +45,7 @@ if sys.version_info[0] == 2:
 else:
     def _convert_time(strtime):
         return tparse(strtime).timestamp()
+
 
 class CacheWrapper:
     """
@@ -127,7 +130,9 @@ class GirderFS(LoggingMixIn, Operations):
     def getattr(self, path, fh=None):
         logging.debug("-> getattr({})".format(path))
         if path == '/':
-            return dict(st_mode=(S_IFDIR | 0o755), st_nlink=2)
+            now = _convert_time(str(datetime.datetime.now()))
+            return dict(st_mode=(S_IFDIR | 0o755), st_nlink=2,
+                        st_ctime=now, st_atime=now, st_mtime=now)
         obj, obj_type = self._get_object_by_path(
             self.folder_id, _lstrip_path(path))
 
@@ -304,6 +309,7 @@ class RESTGirderFS(GirderFS):
         self.fd -= 1
         return self.fd
 
+
 class DownloadThread(threading.Thread):
     def __init__(self, path, stream, fdict, lock, fs):
         threading.Thread.__init__(self)
@@ -318,7 +324,7 @@ class DownloadThread(threading.Thread):
     def run(self):
         with tempfile.NamedTemporaryFile(prefix='wtdm', delete=False) as tmp:
             self.fdict['path'] = tmp.name
-            #print self.stream.__dict__
+            #  print self.stream.__dict__
             for chunk in self.stream.iter_content(chunk_size=65536):
                 tmp.write(chunk)
                 self.fdict['written'] += len(chunk)
@@ -377,6 +383,7 @@ class MLock:
         if not self.lock.locked():
             raise Exception('Lock assertion failed')
 
+
 class WtDmsGirderFS(GirderFS):
     """
     Filesystem for locally mounting a remote Girder folder
@@ -418,7 +425,7 @@ class WtDmsGirderFS(GirderFS):
         if id is None:
             id = objectid.ObjectId()
         return {'obj': {'_id': id, 'name': name, 'created': self.ctime},
-                'listing': {'folders': [], 'files':[]},
+                'listing': {'folders': [], 'files': []},
                 'dirmap': {}}
 
     def _add_session_entry(self, dict, entry):
@@ -458,8 +465,8 @@ class WtDmsGirderFS(GirderFS):
         return fp.read(size)
 
     def _ensure_region_available(self, path, fdict, fh, offset, size):
-        obj = fdict['obj']
-        obj = self._wait_for_file(fdict)
+        # obj = fdict['obj']
+        self._wait_for_file(fdict)
 
         if not fdict['downloaded']:
             download = False
@@ -699,7 +706,9 @@ class WtHomeGirderFS(WtDmsGirderFS):
         logging.debug("-> getattr({})".format(path))
 
         if path == '/':
-            return dict(st_mode=(S_IFDIR | 0o755), st_nlink=2)
+            now = _convert_time(str(datetime.datetime.now()))
+            return dict(st_mode=(S_IFDIR | 0o755), st_nlink=2,
+                        st_ctime=now, st_atime=now, st_mtime=now)
         obj, objType = self._get_object_by_path(
             self.folder_id, _lstrip_path(path))
 
@@ -844,7 +853,8 @@ class WtHomeGirderFS(WtDmsGirderFS):
         # The better thing may be to abandon REST and add an API call that allows this to be
         # done in one step. Although I suspect this will be a small problem once we
         # think about having multiple clients syncing to the same home-dir.
-        obj = self.girder_cli.post('folder', parameters = {'parentId': parentId, 'name': path.name})
+        obj = self.girder_cli.post(
+            'folder', parameters={'parentId': parentId, 'name': path.name})
         self._set_metadata(path, {'permissions': mode})
         self._cache_add_dir(obj, path)
 
@@ -1022,6 +1032,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
             return
         else:
             WtDmsGirderFS._wait_for_file(self, fdict)
+
 
 class LocalGirderFS(GirderFS):
     """
