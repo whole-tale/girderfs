@@ -71,9 +71,10 @@ def main(args=None):
             'user': user['login'],
             'pass': 'token:{}'.format(gc.token),
             'dest': args.local_folder,
+            'opts': '-o uid=1000,gid=100',  # FIXME
             'url': gc.urlBase.replace('api/v1', 'homes').rstrip('/')  # FIXME
         }
-        cmd = 'echo "{user}\n{pass}" | mount.davfs {url}/{user} {dest}'
+        cmd = 'echo "{user}\n{pass}" | mount.davfs {opts} {url}/{user} {dest}'
         cmd = cmd.format(**args)
         subprocess.check_output(cmd, shell=True)  # FIXME
     else:
