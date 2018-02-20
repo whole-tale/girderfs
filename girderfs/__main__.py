@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 import argparse
+import subprocess
 from ctypes import cdll
 from fuse import FUSE
 from girder_client import GirderClient
 import os
 
 from girderfs.core import \
-    RESTGirderFS, LocalGirderFS, WtDmsGirderFS, WtHomeGirderFS
+    RESTGirderFS, LocalGirderFS, WtDmsGirderFS
 
 _libc = cdll.LoadLibrary('libc.so.6')
 _setns = _libc.setns
@@ -65,8 +66,16 @@ def main(args=None):
         FUSE(WtDmsGirderFS(args.remote_folder, gc), args.local_folder,
              foreground=args.foreground, ro=True, allow_other=True)
     elif args.c == 'wt_home':
-        FUSE(WtHomeGirderFS(args.remote_folder, gc), args.local_folder,
-             foreground=args.foreground, ro=False, allow_other=True)
+        user = gc.get('/user/me')
+        args = {
+            'user': user['login'],
+            'pass': 'token:{}'.format(gc.token),
+            'dest': args.local_folder,
+            'url': gc.urlBase.replace('api/v1', 'homes')  # FIXME
+        }
+        cmd = 'echo "{user}\n{pass}" | mount.davfs {url}/{user} {dest}'
+        cmd = cmd.format(**args)
+        subprocess.check_output(cmd, shell=True)  # FIXME
     else:
         print('No implementation for command %s' % args.c)
 
