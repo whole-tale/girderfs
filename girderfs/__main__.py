@@ -33,7 +33,7 @@ def main(args=None):
     parser.add_argument('--hostns', dest='hostns', action='store_true')
     parser.add_argument(
         '-c', default='remote',  help='command to run',
-        choices=['remote', 'direct', 'wt_dms', 'wt_home'])
+        choices=['remote', 'direct', 'wt_dms', 'wt_home', 'wt_work'])
     parser.add_argument('local_folder', help='path to local target folder')
     parser.add_argument(
         'remote_folder', help='Girder\'s folder id or a DM session id')
@@ -65,6 +65,19 @@ def main(args=None):
     elif args.c == 'wt_dms':
         FUSE(WtDmsGirderFS(args.remote_folder, gc), args.local_folder,
              foreground=args.foreground, ro=True, allow_other=True)
+    elif args.c == 'wt_work':
+        user = gc.get('/user/me')
+        args = {
+            'user': user['login'],
+            'pass': 'token:{}'.format(gc.token),
+            'dest': args.local_folder,
+            'tale': args.remote_folder,
+            'opts': '-o uid=1000,gid=100',  # FIXME
+            'url': gc.urlBase.replace('api/v1', 'tales').rstrip('/')  # FIXME
+        }
+        cmd = 'echo "{user}\n{pass}" | mount.davfs {opts} {url}/{tale} {dest}'
+        cmd = cmd.format(**args)
+        subprocess.check_output(cmd, shell=True)  # FIXME
     elif args.c == 'wt_home':
         user = gc.get('/user/me')
         args = {
