@@ -23,7 +23,7 @@ from fuse import Operations, LoggingMixIn, FuseOSError
 import requests
 import datetime
 import threading
-from bson import objectid
+import uuid
 from queue import Queue
 import traceback
 
@@ -430,7 +430,7 @@ class WtDmsGirderFS(GirderFS):
 
     def _make_dict(self, name, id=None):
         if id is None:
-            id = objectid.ObjectId()
+            id = uuid.uuid1()
         return {'obj': {'_id': id, 'name': name, 'created': self.ctime},
                 'listing': {'folders': [], 'files': []},
                 'dirmap': {}}
