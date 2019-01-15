@@ -29,6 +29,7 @@ import traceback
 
 logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.WARNING)
 
+SESSION_CHANGE_CHECK_INTERVAL = 1.0 # seconds
 
 def _lstrip_path(path):
     path_obj = pathlib.Path(path)
@@ -403,12 +404,18 @@ class WtDmsGirderFS(GirderFS):
         self.fobjs = {}
         self.ctime = int(time.time())
         self.session = self._load_session_info()
+        self._init_session()
+
+    def _init_session(self):
+        self.cache = {}
         # pre-cache the session listing so that base class methods
         # don't try to do a listing on a folder with the same id
-        self.cache[sessionId] = self._get_session_listing()
+        self.cache[self.sessionId] = self._get_session_listing()
 
     def _load_session_info(self):
-        return self.girder_cli.get('dm/session/%s?loadObjects=true' % self.sessionId)
+        session = self.girder_cli.get('dm/session/%s?loadObjects=true' % self.sessionId)
+        self.sessionLoadTime = time.time()
+        return session
 
     def _get_session_listing(self):
         # mount points can have arbitrary depth, so pre-populate the cache with
@@ -449,6 +456,30 @@ class WtDmsGirderFS(GirderFS):
         else:
             cdict = dict['dirmap'][crt]
         return self._mkdirs(cdict, path[1:])
+
+    def _get_listing(self, obj_id):
+        (changed, newSession) = self._session_has_changed()
+        if changed:
+            self.session = newSession
+            self._init_session()
+        return super()._get_listing(obj_id)
+
+    def _session_has_changed(self):
+        now = time.time()
+        logging.debug('-> _session_has_changed: now=%s, sessionLoadTime=%s' % (now, self.sessionLoadTime))
+        if now - self.sessionLoadTime < SESSION_CHANGE_CHECK_INTERVAL:
+            logging.debug('-> _session_has_changed: too soon')
+            return (False, None)
+        session = self._load_session_info()
+        # for backwards compatibility with sessions that do not have a seq
+        oldSeq = self.session['seq'] if 'seq' in self.session else None
+        newSeq = session['seq'] if 'seq' in session else None
+        logging.debug('-> _session_has_changed: oldSeq=%s, newSeq=%s' % (oldSeq, newSeq))
+        if newSeq == oldSeq:
+            return (False, None)
+        else:
+            return (True, session)
+
 
     def read(self, path, size, offset, fh):
         logging.debug("-> read({})".format(path))
