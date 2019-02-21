@@ -516,11 +516,14 @@ class WtDmsGirderFS(GirderFS):
         obj = fdict['obj']
         while True:
             try:
-                if obj['dm']['cached']:
-                    return obj
+                cached = obj['dm']['cached']
             except KeyError:
-                time.sleep(1.0)
-                obj = self._get_item_unfiltered(obj['_id'])
+                cached = False
+
+            if cached:
+                return obj
+            time.sleep(1.0)
+            obj = self._get_item_unfiltered(obj['_id'])
 
     def _wait_for_region(self, path, fdict, offset, size):
         # Waits until enough of the file has been downloaded locally
