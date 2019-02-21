@@ -12,7 +12,7 @@ import six
 import shutil
 import tempfile
 from stat import S_IFDIR, S_IFREG
-from errno import ENOENT, EPERM, EISDIR
+from errno import ENOENT, EPERM, EISDIR, EIO
 # http://stackoverflow.com/questions/9144724/
 import encodings.idna  # NOQA pylint: disable=unused-import
 from encodings import hex_codec  # NOQA pylint: disable=unused-import
@@ -506,7 +506,10 @@ class WtDmsGirderFS(GirderFS):
                     download = True
                     fdict['downloading'] = True
             if download:
-                lockId = self.locks[fh]
+                try:
+                    lockId = self.locks[fh]
+                except KeyError:
+                    raise FuseOSError(EIO)  # TODO: debug why it happens
                 self._start_download(path, lockId)
 
         self._wait_for_region(path, fdict, offset, size)
