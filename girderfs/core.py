@@ -526,6 +526,7 @@ class WtDmsGirderFS(GirderFS):
                 return obj
             time.sleep(1.0)
             obj = self._get_item_unfiltered(obj['_id'])
+            fdict['obj'] = obj
 
     def _wait_for_region(self, path, fdict, offset, size):
         # Waits until enough of the file has been downloaded locally
