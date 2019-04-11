@@ -482,7 +482,7 @@ class WtDmsGirderFS(GirderFS):
 
 
     def read(self, path, size, offset, fh):
-        logging.debug("-> read({})".format(path))
+        logging.debug("-> read({}, offset={}, size={})".format(path, offset, size))
 
         fdict = self.openFiles[path]
 
