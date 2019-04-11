@@ -496,7 +496,6 @@ class WtDmsGirderFS(GirderFS):
         return fp.read(size)
 
     def _ensure_region_available(self, path, fdict, fh, offset, size):
-        # obj = fdict['obj']
         self._wait_for_file(fdict)
 
         if not fdict['downloaded']:
