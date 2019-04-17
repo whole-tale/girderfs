@@ -27,7 +27,7 @@ import uuid
 from queue import Queue
 import traceback
 
-logging.basicConfig(format='%(asctime)-15s %(levelname)s:%(message)s', level=logging.DEBUG)
+logging.basicConfig(format='%(asctime)-15s %(levelname)s:%(message)s', level=logging.WARNING)
 
 SESSION_CHANGE_CHECK_INTERVAL = 1.0 # seconds
 
