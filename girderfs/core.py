@@ -27,7 +27,7 @@ import uuid
 from queue import Queue
 import traceback
 
-logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.WARNING)
+logging.basicConfig(format='%(asctime)-15s %(levelname)s:%(message)s', level=logging.WARNING)
 
 SESSION_CHANGE_CHECK_INTERVAL = 1.0 # seconds
 
@@ -482,7 +482,7 @@ class WtDmsGirderFS(GirderFS):
 
 
     def read(self, path, size, offset, fh):
-        logging.debug("-> read({})".format(path))
+        logging.debug("-> read({}, offset={}, size={})".format(path, offset, size))
 
         fdict = self.openFiles[path]
 
@@ -496,7 +496,6 @@ class WtDmsGirderFS(GirderFS):
         return fp.read(size)
 
     def _ensure_region_available(self, path, fdict, fh, offset, size):
-        # obj = fdict['obj']
         self._wait_for_file(fdict)
 
         if not fdict['downloaded']:
@@ -527,6 +526,7 @@ class WtDmsGirderFS(GirderFS):
                 return obj
             time.sleep(1.0)
             obj = self._get_item_unfiltered(obj['_id'])
+            fdict['obj'] = obj
 
     def _wait_for_region(self, path, fdict, offset, size):
         # Waits until enough of the file has been downloaded locally
