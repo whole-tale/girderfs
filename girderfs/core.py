@@ -47,6 +47,9 @@ else:
     def _convert_time(strtime):
         return tparse(strtime).timestamp()
 
+class DictCache(dict):
+    def close(self):
+        pass
 
 class CacheWrapper:
     """
@@ -407,7 +410,7 @@ class WtDmsGirderFS(GirderFS):
         self._init_session()
 
     def _init_session(self):
-        self.cache = {}
+        self.cache = CacheWrapper(DictCache())
         # pre-cache the session listing so that base class methods
         # don't try to do a listing on a folder with the same id
         self.cache[self.sessionId] = self._get_session_listing()
