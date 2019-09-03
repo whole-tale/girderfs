@@ -47,6 +47,9 @@ else:
     def _convert_time(strtime):
         return tparse(strtime).timestamp()
 
+class DictCache(dict):
+    def close(self):
+        pass
 
 class CacheWrapper:
     """
@@ -407,7 +410,7 @@ class WtDmsGirderFS(GirderFS):
         self._init_session()
 
     def _init_session(self):
-        self.cache = {}
+        self.cache = CacheWrapper(DictCache())
         # pre-cache the session listing so that base class methods
         # don't try to do a listing on a folder with the same id
         self.cache[self.sessionId] = self._get_session_listing()
@@ -518,15 +521,20 @@ class WtDmsGirderFS(GirderFS):
         obj = fdict['obj']
         while True:
             try:
-                cached = obj['dm']['cached']
+                if obj['dm']['cached']:
+                    return obj
             except KeyError:
-                cached = False
+                pass
 
-            if cached:
-                return obj
             time.sleep(1.0)
             obj = self._get_item_unfiltered(obj['_id'])
             fdict['obj'] = obj
+
+            try:
+                if obj['dm']['transferError']:
+                    raise OSError(EIO, os.strerror(EIO))
+            except KeyError:
+                pass
 
     def _wait_for_region(self, path, fdict, offset, size):
         # Waits until enough of the file has been downloaded locally
