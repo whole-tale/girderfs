@@ -520,15 +520,21 @@ class WtDmsGirderFS(GirderFS):
         # Waits for the file to be downloaded/cached by the DMS
         obj = fdict['obj']
         while True:
-            if 'dm' in obj:
-                if 'cached' in obj['dm'] and obj['dm']['cached']:
+            try:
+                if obj['dm']['cached']:
                     return obj
-                if 'transferError' in obj['dm'] and obj['dm']['transferError']:
-                    raise OSError(EIO, os.strerror(EIO))
+            except KeyError:
+                pass
 
             time.sleep(1.0)
             obj = self._get_item_unfiltered(obj['_id'])
             fdict['obj'] = obj
+
+            try:
+                if obj['dm']['transferError']:
+                    raise OSError(EIO, os.strerror(EIO))
+            except KeyError:
+                pass
 
     def _wait_for_region(self, path, fdict, offset, size):
         # Waits until enough of the file has been downloaded locally
