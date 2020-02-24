@@ -5,9 +5,10 @@ from ctypes import cdll
 from fuse import FUSE
 from girder_client import GirderClient
 import os
+import sys
 
 from girderfs.core import \
-    RESTGirderFS, LocalGirderFS, WtDmsGirderFS
+    RESTGirderFS, LocalGirderFS, WtDmsGirderFS, WtVersionsFS
 
 _libc = cdll.LoadLibrary('libc.so.6')
 _setns = _libc.setns
@@ -33,10 +34,11 @@ def main(args=None):
     parser.add_argument('--hostns', dest='hostns', action='store_true')
     parser.add_argument(
         '-c', default='remote',  help='command to run',
-        choices=['remote', 'direct', 'wt_dms', 'wt_home', 'wt_work'])
+        choices=['remote', 'direct', 'wt_dms', 'wt_home', 'wt_work', 'wt_versions'])
     parser.add_argument('local_folder', help='path to local target folder')
     parser.add_argument(
-        'remote_folder', help='Girder\'s folder id or a DM session id')
+        'remote_folder', help='Girder\'s folder id, a DM session id (for wt_dms), or a tale instance'
+                              'ID (for wt_versions)')
 
     args = parser.parse_args()
 
@@ -90,6 +92,9 @@ def main(args=None):
         cmd = 'echo "{user}\n{pass}" | mount.davfs {opts} {url}/{user} {dest}'
         cmd = cmd.format(**args)
         subprocess.check_output(cmd, shell=True)  # FIXME
+    elif args.c == 'wt_versions':
+        FUSE(WtVersionsFS(args.remote_folder, gc), args.local_folder,
+             foreground=args.foreground, ro=True, allow_other=True)
     else:
         print('No implementation for command %s' % args.c)
 

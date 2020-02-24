@@ -2,37 +2,38 @@
 """
 Core classes for FUSE based filesystem handling Girder's resources
 """
-
-import os
-import time
-import pathlib
-import logging
-import sys
-import six
-import shutil
-import tempfile
-from stat import S_IFDIR, S_IFREG
-from errno import ENOENT, EPERM, EISDIR, EIO
-# http://stackoverflow.com/questions/9144724/
-import encodings.idna  # NOQA pylint: disable=unused-import
-from encodings import hex_codec  # NOQA pylint: disable=unused-import
-
-from dateutil.parser import parse as tparse
-import diskcache
-from fuse import Operations, LoggingMixIn, FuseOSError
-import requests
+import base64
 import datetime
+import logging
+import os
+import pathlib
+import shutil
+import sys
+import tempfile
 import threading
-import uuid
-from queue import Queue
+import time
 import traceback
+import uuid
+from errno import ENOENT, EPERM, EISDIR, EIO, EACCES
+from queue import Queue
+from stat import S_IFDIR, S_IFREG
+from typing import Union, Tuple
 
-logging.basicConfig(format='%(asctime)-15s %(levelname)s:%(message)s', level=logging.WARNING)
+import diskcache
+import requests
+import six
+from dateutil.parser import parse as tparse
+from fuse import Operations, LoggingMixIn, FuseOSError
+from girder_client import GirderClient
 
-SESSION_CHANGE_CHECK_INTERVAL = 1.0 # seconds
+# http://stackoverflow.com/questions/9144724/
+
+logging.basicConfig(format='%(asctime)-15s %(levelname)s:%(message)s', level=logging.ERROR)
+
+ROOT_CHANGE_CHECK_INTERVAL = 1.0 # seconds
 
 def _lstrip_path(path):
-    path_obj = pathlib.Path(path)
+    path_obj = pathlib.Path(path).resolve()
     if path_obj.is_absolute():
         return pathlib.Path(*path_obj.parts[1:])
     else:
@@ -93,27 +94,37 @@ class GirderFS(LoggingMixIn, Operations):
     :param girder_cli: Authenticated instance of GirderClient
     :type girder_cli: girder_client.GriderClient
     """
-    def __init__(self, folder_id, girder_cli):
+    def __init__(self, root_id, girder_cli, root_model='folder',
+                 default_file_perm=0o644, default_dir_perm=0o755):
         super(GirderFS, self).__init__()
-        self.folder_id = folder_id
+        self.root_id = root_id
         self.girder_cli = girder_cli
         self.fd = 0
+        self.default_file_perm = default_file_perm
+        self.default_dir_perm = default_dir_perm
         self.cachedir = tempfile.mkdtemp(prefix='wtdm')
         self.cache = CacheWrapper(diskcache.Cache(self.cachedir))
+        self._root = self._load_root()
 
-    def _get_object_by_path(self, obj_id, path):
-        logging.debug("-> _get_object_by_path({}, {})".format(obj_id, path))
-        raw_listing = self._get_listing(obj_id)
-        folder = self._find(path.parts[0], raw_listing['folders'])
+    def _load_root(self):
+        return self.girder_cli.get('/%s/%s' % (self.root_model, self.root_id))
+
+    @property
+    def root(self):
+        return self._root
+
+    def _get_object_by_path(self, obj: dict, pathFromObj: pathlib.Path) -> Tuple[dict, str]:
+        logging.debug("-> _get_object_by_path({}, {})".format(obj['_id'], pathFromObj))
+        raw_listing = self._get_listing(obj)
+        folder = self._find(pathFromObj.parts[0], raw_listing['folders'])
 
         if folder is not None:
-            if len(path.parts) == 1:
+            if len(pathFromObj.parts) == 1:
                 return folder, "folder"
             else:
-                return self._get_object_by_path(folder["_id"],
-                                                pathlib.Path(*path.parts[1:]))
+                return self._get_object_by_path(folder, pathlib.Path(*pathFromObj.parts[1:]))
 
-        _file = self._find(path.parts[0], raw_listing['files'])
+        _file = self._find(pathFromObj.parts[0], raw_listing['files'])
 
         if _file is not None:
             return _file, "file"
@@ -123,27 +134,30 @@ class GirderFS(LoggingMixIn, Operations):
     def _find(self, name, list):
         return next((item for item in list if item['name'] == name), None)
 
-    def _get_listing(self, obj_id):
+    def _get_listing(self, obj: dict) -> dict:
+        obj_id = str(obj['_id'])
         try:
             return self.cache[obj_id]
         except KeyError:
-            self.cache[obj_id] = self.girder_cli.get('dm/fs/%s/listing' % obj_id)
+            self.cache[obj_id] = self._girder_get_listing(obj_id)
         finally:
             return self.cache[obj_id]
+
+    def _girder_get_listing(self, obj_id: str):
+        return self.girder_cli.get('dm/fs/%s/listing' % obj_id)
 
     def getattr(self, path, fh=None):
         logging.debug("-> getattr({})".format(path))
         if path == '/':
             now = _convert_time(str(datetime.datetime.now()))
-            return dict(st_mode=(S_IFDIR | 0o755), st_nlink=2,
+            return dict(st_mode=(S_IFDIR | self._get_perm(path, True)), st_nlink=2,
                         st_ctime=now, st_atime=now, st_mtime=now)
-        obj, obj_type = self._get_object_by_path(
-            self.folder_id, _lstrip_path(path))
+        obj, obj_type = self._get_object_by_path(self.root, _lstrip_path(path))
 
         if obj_type == 'folder':
-            stat = dict(st_mode=(S_IFDIR | 0o755), st_nlink=2)
+            stat = dict(st_mode=(S_IFDIR | self._get_perm(path, True)), st_nlink=2)
         else:
-            stat = dict(st_mode=(S_IFREG | 0o644), st_nlink=1)
+            stat = dict(st_mode=(S_IFREG | self._get_perm(path, False)), st_nlink=1)
         ctime = _convert_time(obj["created"])
         try:
             mtime = _convert_time(obj["updated"])
@@ -152,6 +166,12 @@ class GirderFS(LoggingMixIn, Operations):
         stat.update(dict(st_ctime=ctime, st_mtime=mtime, st_blocks=1,
                          st_size=obj["size"], st_atime=time.time()))
         return stat
+
+    def _get_perm(self, path, is_dir):
+        if is_dir:
+            return self.default_dir_perm
+        else:
+            return self.default_file_perm
 
     def read(self, path, size, offset, fh):
         raise NotImplementedError
@@ -167,11 +187,13 @@ class GirderFS(LoggingMixIn, Operations):
 
     def _get_listing_by_path(self, path):
         if path == '/':
-            return self._get_listing(self.folder_id)
+            return self._get_root_listing()
         else:
-            obj, obj_type = self._get_object_by_path(
-                self.folder_id, _lstrip_path(path))
-            return self._get_listing(obj["_id"])
+            obj, obj_type = self._get_object_by_path(self.root, _lstrip_path(path))
+            return self._get_listing(obj)
+
+    def _get_root_listing(self):
+        return self._get_listing(self.root)
 
     def getinfo(self, path):
         logging.debug("-> getinfo({})".format(path))
@@ -222,12 +244,12 @@ class GirderFS(LoggingMixIn, Operations):
         raw_listing = self._get_listing_by_path(path)
 
         for obj in raw_listing['files']:
-            stat = dict(st_mode=(S_IFREG | 0o644), st_nlink=1)
+            stat = dict(st_mode=(S_IFREG | self.default_file_perm), st_nlink=1)
             stat.update(_get_stat(obj))
             listdir.append((obj['name'], stat))
 
         for obj in raw_listing['folders']:
-            stat = dict(st_mode=(S_IFDIR | 0o755), st_nlink=2)
+            stat = dict(st_mode=(S_IFDIR | self.default_dir_perm), st_nlink=2)
             stat.update(_get_stat(obj))
             listdir.append((obj['name'], stat))
 
@@ -398,43 +420,45 @@ class WtDmsGirderFS(GirderFS):
     :type gc: girder_client.GriderClient
     """
 
-    def __init__(self, sessionId, gc):
-        GirderFS.__init__(self, six.text_type(sessionId), gc)
+    def __init__(self, sessionId, gc, default_file_perm=0o644, default_dir_perm=0o755):
+        GirderFS.__init__(self, six.text_type(sessionId), gc, default_file_perm=default_file_perm,
+                          default_dir_perm=default_dir_perm)
         self.sessionId = sessionId
         self.flock = MLock()
         self.openFiles = {}
         self.locks = {}
         self.fobjs = {}
         self.ctime = int(time.time())
-        self.session = self._load_session_info()
         self._init_session()
 
     def _init_session(self):
         self.cache = CacheWrapper(DictCache())
         # pre-cache the session listing so that base class methods
         # don't try to do a listing on a folder with the same id
-        self.cache[self.sessionId] = self._get_session_listing()
+        self.cache[self.sessionId] = self._get_root_listing()
 
-    def _load_session_info(self):
-        session = self.girder_cli.get('dm/session/%s?loadObjects=true' % self.sessionId)
+    def _load_root(self):
+        session = self.girder_cli.get('dm/session/%s?loadObjects=true' % self.root_id)
         self.sessionLoadTime = time.time()
         return session
 
-    def _get_session_listing(self):
+    def _get_root_listing(self) -> dict:
         # mount points can have arbitrary depth, so pre-populate the cache with
         # the necessary directory structure
         dict = self._make_dict('/', self.sessionId)
-        dataSet = self.session['dataSet']
+        dataSet = self.root['dataSet']
 
         for entry in dataSet:
             self._add_session_entry(dict, entry)
 
         return dict['listing']
 
-    def _make_dict(self, name, id=None):
+    def _make_dict(self, name, id=None, ctime=None):
+        if ctime is None:
+            ctime = self.ctime
         if id is None:
             id = uuid.uuid1()
-        return {'obj': {'_id': id, 'name': name, 'created': self.ctime},
+        return {'obj': {'_id': id, 'name': name, 'created': ctime},
                 'listing': {'folders': [], 'files': []},
                 'dirmap': {}}
 
@@ -460,22 +484,22 @@ class WtDmsGirderFS(GirderFS):
             cdict = dict['dirmap'][crt]
         return self._mkdirs(cdict, path[1:])
 
-    def _get_listing(self, obj_id):
-        (changed, newSession) = self._session_has_changed()
+    def _get_listing(self, obj):
+        (changed, newRoot) = self._root_has_changed()
         if changed:
-            self.session = newSession
+            self.root = newRoot
             self._init_session()
-        return super()._get_listing(obj_id)
+        return super()._get_listing(obj)
 
-    def _session_has_changed(self):
+    def _root_has_changed(self):
         now = time.time()
         logging.debug('-> _session_has_changed: now=%s, sessionLoadTime=%s' % (now, self.sessionLoadTime))
-        if now - self.sessionLoadTime < SESSION_CHANGE_CHECK_INTERVAL:
+        if now - self.sessionLoadTime < ROOT_CHANGE_CHECK_INTERVAL:
             logging.debug('-> _session_has_changed: too soon')
             return (False, None)
-        session = self._load_session_info()
+        session = self._load_root()
         # for backwards compatibility with sessions that do not have a seq
-        oldSeq = self.session['seq'] if 'seq' in self.session else None
+        oldSeq = self.root['seq'] if 'seq' in self.root else None
         newSeq = session['seq'] if 'seq' in session else None
         logging.debug('-> _session_has_changed: oldSeq=%s, newSeq=%s' % (oldSeq, newSeq))
         if newSeq == oldSeq:
@@ -553,7 +577,7 @@ class WtDmsGirderFS(GirderFS):
     def open(self, path, mode=os.O_RDONLY, **kwargs):
         fd = self._next_fd()
         logging.debug("-> open({}, {})".format(path, fd))
-        obj, _ = self._get_object_by_path(self.folder_id, _lstrip_path(path))
+        obj, _ = self._get_object_by_path(self.root, _lstrip_path(path))
         obj = self._get_item_unfiltered(self._get_id(obj))
         self._open(path, fd, obj)
         return fd
@@ -574,7 +598,7 @@ class WtDmsGirderFS(GirderFS):
         # By default, FUSE uses multiple threads. In our case, single threads are undesirable,
         # since a single slow open() could prevent any other FS operations from happening.
         # So make sure shared state is properly synchronized
-        lockId = self._lock(obj)
+        lockId = self._lock(path, obj)
         try:
             available = obj['dm']['cached']
         except KeyError:
@@ -599,7 +623,7 @@ class WtDmsGirderFS(GirderFS):
             else:
                 self._start_download(path, self.locks[fd])
 
-    def _ensure_fdict(self, path, obj):
+    def _ensure_fdict(self, path: str, obj):
         if path not in self.openFiles:
             self.openFiles[path] = {'obj': obj, 'written': 0, 'downloading': False,
                                     'downloaded': False, 'path': None}
@@ -617,9 +641,8 @@ class WtDmsGirderFS(GirderFS):
         thread = DownloadThread(path, req, self.openFiles[path], self.flock, self)
         thread.start()
 
-    def _lock(self, obj):
-        resp = self.girder_cli.post('dm/lock?sessionId=%s&itemId=%s' %
-                                    (self.sessionId, obj['_id']))
+    def _lock(self, path, obj):
+        resp = self.girder_cli.post('dm/lock?sessionId=%s&itemId=%s' % (self.root_id, obj['_id']))
         return resp['_id']
 
     def _unlock(self, lockId):
@@ -722,10 +745,10 @@ class WtHomeGirderFS(WtDmsGirderFS):
         if not self.cache.delete(id):
             logging.error('Object not in cache "%s" (%s)' % (id, type(id)))
 
-    def _load_session_info(self):
+    def _load_root(self):
         return None
 
-    def _get_session_listing(self):
+    def _get_root_listing(self):
         return None
 
     def statfs(self, path):
@@ -752,15 +775,17 @@ class WtHomeGirderFS(WtDmsGirderFS):
 
         if path == '/':
             now = _convert_time(str(datetime.datetime.now()))
-            return dict(st_mode=(S_IFDIR | 0o755), st_nlink=2,
+            return dict(st_mode=(S_IFDIR | self._get_perm(path, True)), st_nlink=2,
                         st_ctime=now, st_atime=now, st_mtime=now)
         obj, objType = self._get_object_by_path(
             self.folder_id, _lstrip_path(path))
 
         if objType == 'folder':
-            stat = dict(st_mode=(S_IFDIR | self._get_prop(obj, 'permissions', 0o755)), st_nlink=2)
+            stat = dict(st_mode=(S_IFDIR | self._get_prop(obj, 'permissions',
+                                                          self._get_perm(path, True))), st_nlink=2)
         else:
-            stat = dict(st_mode=(S_IFREG | self._get_prop(obj, 'permissions', 0o644)), st_nlink=1)
+            stat = dict(st_mode=(S_IFREG | self._get_prop(obj, 'permissions',
+                                                          self._get_perm(path, False))), st_nlink=1)
         ctime = _convert_time(obj['created'])
         try:
             mtime = _convert_time(obj['updated'])
@@ -1107,3 +1132,206 @@ class LocalGirderFS(GirderFS):
     def release(self, path, fh):  # pylint: disable=unused-argument
         logging.debug("-> release({})".format(path))
         return os.close(fh)
+
+def _getSessionIdFromInstanceId(instanceId: str, gc: GirderClient) -> str:
+    instance = gc.get('instance/%s' % instanceId)
+    return instance['sessionId']
+
+# These are copied and pasted from virtual_resources. There should probably be a better way
+def _generate_id(path, root_id):
+    if isinstance(path, pathlib.Path):
+        path = path.as_posix()
+    path += "|" + str(root_id)
+    return "wtlocal:" + base64.b64encode(path.encode()).decode()
+
+
+def _path_from_id(object_id):
+    decoded = base64.b64decode(object_id[8:]).decode()
+    path, root_id = decoded.split("|")
+    return pathlib.Path(path), root_id
+
+
+class WtVersionsFS(WtDmsGirderFS):
+    PATH_TYPE_ROOT = 0
+    PATH_TYPE_VERSION = 1
+    PATH_TYPE_DATA = 2
+    PATH_TYPE_WORKSPACE = 3
+    PATH_TYPE_UNKNOWN = 4
+    VERSION_LISTING = [{'name': 'data'}, {'name': 'workspace'}]
+
+    def __init__(self, instance_id, gc):
+        WtDmsGirderFS.__init__(self, instance_id, gc,
+                               default_file_perm=0o444, default_dir_perm=0o555)
+        self.instance_id = instance_id
+        self.session_id = _getSessionIdFromInstanceId(instance_id, gc)
+        self.cached_versions = {}
+
+    def _load_root(self):
+        # This is getting messy, but "session" here means the root object in the
+        # hierarchy, which in this case is a versions folder for an instance.
+        # The DMS FS implementation is basically an implementation of a mostly read-only
+        # filesystem, with the exception that the root (session) can change somewhat
+        # infrequently. We want that, but the name "session" does not necessarily apply.
+        versions_folder = self.girder_cli.get('version/getRoot?instanceId=%s' % self.root_id)
+        self.sessionLoadTime = time.time()
+        # keep a handle on the root folder id since it differs from what is passed as
+        # root_id to the superclass, which is the instance id.
+        self.root_id = str(versions_folder['_id'])
+        return versions_folder
+
+    def _get_root_listing(self):
+        return {'folders': self.girder_cli.get('version/list?rootId=%s' % self.root_id),
+                'files': []}
+
+    def _root_has_changed(self):
+        now = time.time()
+        if now - self.sessionLoadTime < ROOT_CHANGE_CHECK_INTERVAL:
+            return (False, None)
+        root = self._load_root()
+        # for backwards compatibility with sessions that do not have a seq
+        old_seq = self.root['seq'] if 'seq' in self.root else None
+        new_seq = root['seq'] if 'seq' in root else None
+        logging.debug('-> _root_has_changed: oldSeq=%s, newSeq=%s' % (old_seq, new_seq))
+        if new_seq == old_seq:
+            return (False, None)
+        else:
+            return (True, root)
+
+    def _get_listing(self, obj):
+        if str(obj['_id']) == self.root_id:
+            return self._get_root_listing()
+        elif str(obj['parentId']) == self.root_id:
+            # a version; use this opportunity to pre-populate the cache with information
+            # from the session
+            params = {'name': 'data', 'parentId': str(obj['_id']), 'parentType': 'folder'}
+            data_folder = self.girder_cli.get('/folder', parameters=params)[0]
+            data_set = self.girder_cli.get('/version/%s/dataSet' % obj['_id'])
+
+            data_id = str(data_folder['_id'])
+            dict = self._make_dict('data', data_id)
+            for entry in data_set:
+                self._add_session_entry(dict, entry)
+            self.cache[data_id] = dict['listing']
+            return super()._get_listing(obj)
+        else:
+            return super()._get_listing(obj)
+
+    def _is_version(self, path: Union[pathlib.Path, str]) -> bool:
+        if isinstance(path, str):
+            path = pathlib.Path(path)
+        assert path.is_absolute()
+        return len(path.parts) == 2
+
+    def _is_external_file(self, path: Union[pathlib.Path, str]) -> bool:
+        if isinstance(path, str):
+            path = pathlib.Path(path)
+        assert path.is_absolute()
+        return len(path.parts) > 3 and path.parts[2] == 'data'
+
+    def rename(self, old, new):
+        old = pathlib.Path(old)
+        if not self._is_version(old):
+            raise FuseOSError(EPERM)
+        new = pathlib.Path(new)
+        if not self._is_version(new):
+            raise FuseOSError(EPERM)
+        obj, _ = self._get_object_by_path(self.root, _lstrip_path(old))
+        if new == '/.trash':
+            # We can't really implement removal of versions using normal delete operations,
+            # since that is done by recursive removal of files and directories, files and
+            # directories which cannot otherwise be removed or modified individually. Instead,
+            # removal is implemented as a single operation consisting of moving a version to
+            # a special directory. Incidentally, the version delete operation does, in fact,
+            # move the deleted version to a .trash directory. Undelete is not currently exposed,
+            # but reasonable design dictates that we eventually do expose it.
+            self.girder_cli.delete('/version/%s' % obj['_id'])
+        else:
+            self.girder_cli.get('/version/%s/rename' % obj['_id'], {'newName': new.parts[-1]})
+
+    def _get_perm(self, path, is_dir):
+        if is_dir and path == '/':
+            # allow write on the root folder, but only to the extent that we can rename and delete
+            # versions
+            return 0o755
+        else:
+            # use defaults passed to the super constructor
+            return super()._get_perm(path, is_dir)
+
+    def _open(self, path: str, fd: int, obj: dict) -> None:
+        if self._is_external_file(path):
+            super()._open(path, fd, obj)
+        else:
+            self._start_nondms_download(path)
+
+    def _start_nondms_download(self, path: str) -> None:
+        file, model = self._get_object_by_path(self.root, _lstrip_path(path))
+        if model != 'file':
+            raise FuseOSError(EISDIR)
+        with self.flock:
+            fdict = self._ensure_fdict(path, file)
+            fdict['cached.locally'] = True
+            downloaded = fdict['downloaded']
+            downloading = fdict['downloading']
+            # set downloading flag with lock held
+            if not downloading and not downloaded:
+                fdict['downloading'] = True
+                fdict['written'] = 0
+        if downloaded:
+            # file is here, so no need to download again
+            pass
+        else:
+            if downloading:
+                return
+            else:
+                req = requests.get(
+                    '%sfile/%s/download' % (self.girder_cli.urlBase, file['_id']),
+                    headers={'Girder-Token': self.girder_cli.token}, stream=True)
+                thread = DownloadThread(path, req, self.openFiles[path], self.flock, self)
+                thread.start()
+
+    def _wait_for_file(self, fdict):
+        if 'cached.locally' in fdict:
+            return
+        else:
+            super()._wait_for_file(fdict)
+
+    def _lock(self, path, obj):
+        resp = self.girder_cli.post('dm/lock?sessionId=%s&itemId=%s' %
+                                    (self.session_id, obj['_id']))
+        return resp['_id']
+
+    # By default, these may throw EROFS, but we don't want to confuse the user, since
+    # some rather limited things can be done with top level directories. So instead of
+    # saying EROFS (read-only filesystem), we say EPERM (operation not permitted)
+    def chmod(self, path, mode):
+        raise FuseOSError(EPERM)
+
+    def chown(self, path, uid, gid):
+        raise FuseOSError(EPERM)
+
+    def create(self, path, mode, fi=None):
+        raise FuseOSError(EPERM)
+
+    def link(self, target, source):
+        raise FuseOSError(EPERM)
+
+    def mkdir(self, path, mode):
+        raise FuseOSError(EPERM)
+
+    def mknod(self, path, mode, dev):
+        raise FuseOSError(EPERM)
+
+    def rmdir(self, path):
+        raise FuseOSError(EPERM)
+
+    def symlink(self, target, source):
+        raise FuseOSError(EPERM)
+
+    def truncate(self, path, length, fh=None):
+        raise FuseOSError(EPERM)
+
+    def unlink(self, path):
+        raise FuseOSError(EPERM)
+
+    def write(self, path, data, offset, fh):
+        raise FuseOSError(EPERM)
