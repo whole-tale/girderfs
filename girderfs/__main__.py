@@ -8,7 +8,7 @@ import os
 import sys
 
 from girderfs.core import \
-    RESTGirderFS, LocalGirderFS, WtDmsGirderFS, WtVersionsFS
+    RESTGirderFS, LocalGirderFS, WtDmsGirderFS, WtVersionsFS, WtRunsFS
 
 _libc = cdll.LoadLibrary('libc.so.6')
 _setns = _libc.setns
@@ -32,9 +32,12 @@ def main(args=None):
     parser.add_argument('--token', required=False, default=None)
     parser.add_argument('--foreground', dest='foreground', action='store_true')
     parser.add_argument('--hostns', dest='hostns', action='store_true')
+    parser.add_argument('--versions-mountpoint', dest='versions_mountpoint', required=False,
+                        help='Mountpoint for the versions FS. If relative, then it should be '
+                             'relative to the runs mountpoint', default='Versions')
     parser.add_argument(
-        '-c', default='remote',  help='command to run',
-        choices=['remote', 'direct', 'wt_dms', 'wt_home', 'wt_work', 'wt_versions'])
+        '-c', default='remote',  help='type of filesystem to mount',
+        choices=['remote', 'direct', 'wt_dms', 'wt_home', 'wt_work', 'wt_versions', 'wt_runs'])
     parser.add_argument('local_folder', help='path to local target folder')
     parser.add_argument(
         'remote_folder', help='Girder\'s folder id, a DM session id (for wt_dms), or a tale instance'
@@ -94,10 +97,12 @@ def main(args=None):
         subprocess.check_output(cmd, shell=True)  # FIXME
     elif args.c == 'wt_versions':
         FUSE(WtVersionsFS(args.remote_folder, gc), args.local_folder,
-             foreground=args.foreground, ro=True, allow_other=True)
+             foreground=args.foreground, ro=False, allow_other=True)
+    elif args.c == 'wt_runs':
+        FUSE(WtRunsFS(args.remote_folder, gc, args.versions_mountpoint), args.local_folder,
+             foreground=args.foreground, ro=False, allow_other=True)
     else:
         print('No implementation for command %s' % args.c)
-
 
 if __name__ == "__main__":
     main()
