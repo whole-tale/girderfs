@@ -555,7 +555,7 @@ class WtDmsGirderFS(GirderFS):
         # mount points can have arbitrary depth, so pre-populate the cache with
         # the necessary directory structure
         for entry in dataSet:
-            self._add_session_entry(self.sessionId, entry)
+            self._add_session_entry(self.root_id, entry)
 
     def _fake_obj(self, fs_type: str, name=None, id=None, ctime=None):
         if ctime is None:
