@@ -1252,11 +1252,11 @@ def _path_from_id(object_id):
 
 class WtVersionsFS(WtDmsGirderFS):
 
-    def __init__(self, instance_id, gc):
-        self.instance_id = instance_id
-        WtDmsGirderFS.__init__(self, instance_id, gc,
+    def __init__(self, tale_id, gc):
+        self.tale_id = tale_id
+        WtDmsGirderFS.__init__(self, tale_id, gc,
                                default_file_perm=0o444, default_dir_perm=0o555)
-        self.session_id = _getSessionIdFromInstanceId(instance_id, gc)
+        self.session_id = None  # TODO: fixme
         self.cached_versions = {}
 
     @property
@@ -1265,8 +1265,9 @@ class WtVersionsFS(WtDmsGirderFS):
 
     def _load_object(self, id: str, model: str, path: pathlib.Path):
         if id == self.root_id:
-            versions_folder = self.girder_cli.get('%s/getRoot?instanceId=%s' %
-                                                  (self._resource_name, self.instance_id))
+            versions_folder = self.girder_cli.get(
+                f"{self._resource_name}/getRoot", parameters={"taleId": self.tale_id}
+            )
             self.root_id = str(versions_folder['_id'])
             return self._add_model('folder', versions_folder)
         else:
@@ -1643,8 +1644,8 @@ class CacheFile:
 
 class WtRunsFS(WtVersionsFS):
 
-    def __init__(self, instance_id, gc, versions_mountpoint):
-        WtVersionsFS.__init__(self, instance_id, gc)
+    def __init__(self, tale_id, gc, versions_mountpoint):
+        WtVersionsFS.__init__(self, tale_id, gc)
         versions_path = pathlib.Path(versions_mountpoint)
         if not versions_path.is_absolute():
             # we'll use this from Runs/<run>/, so move this up a bit
