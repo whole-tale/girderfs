@@ -1266,7 +1266,7 @@ class WtVersionsFS(WtDmsGirderFS):
     def _load_object(self, id: str, model: str, path: pathlib.Path):
         if id == self.root_id:
             versions_folder = self.girder_cli.get(
-                f"{self._resource_name}/getRoot", parameters={"taleId": self.tale_id}
+                f"{self._resource_name}/root", parameters={"taleId": self.tale_id}
             )
             self.root_id = str(versions_folder['_id'])
             return self._add_model('folder', versions_folder)
@@ -1276,7 +1276,7 @@ class WtVersionsFS(WtDmsGirderFS):
     def _girder_get_listing(self, obj: dict, path: pathlib.Path):
         if str(obj['_id']) == self.root_id:
             return {
-                'folders': self.girder_cli.get('%s/list?rootId=%s' %
+                'folders': self.girder_cli.get('%s?rootId=%s' %
                                                (self._resource_name, self.root_id)),
                 'files': []
             }
@@ -1343,7 +1343,7 @@ class WtVersionsFS(WtDmsGirderFS):
             # but reasonable design dictates that we eventually do expose it.
             self.girder_cli.delete('%s/%s' % (self._resource_name, obj['_id']))
         else:
-            self.girder_cli.get('%s/%s/rename' % (self._resource_name, obj['_id']),
+            self.girder_cli.put('%s/%s' % (self._resource_name, obj['_id']),
                                 {'newName': new.parts[-1]})
 
     def _get_perm(self, path, is_dir):
