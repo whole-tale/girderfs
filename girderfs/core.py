@@ -29,10 +29,12 @@ from girder_client import GirderClient
 
 # http://stackoverflow.com/questions/9144724/
 
-logging.basicConfig(format='%(asctime)-15s %(levelname)s:%(message)s', level=logging.ERROR)
+logging.basicConfig(format='%(asctime)-15s %(levelname)s:%(message)s', level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 CACHE_ENTRY_STALE_TIME = 1.0 # seconds
 ROOT_PATH = pathlib.Path('/')
+
 
 def _lstrip_path(path):
     path_obj = pathlib.Path(path).resolve()
@@ -136,11 +138,11 @@ class GirderFS(LoggingMixIn, Operations):
         return obj
 
     def _get_object_from_root(self, path: pathlib.Path) -> Tuple[dict, str]:
-        logging.debug("-> _get_object_from_root({})".format(path))
+        logger.debug("-> _get_object_from_root({})".format(path))
         return self._get_object_by_path(self.root_id, path)
 
     def _get_object_by_path(self, obj_id: str, pathFromObj: pathlib.Path) -> Tuple[dict, str]:
-        logging.debug("-> _get_object_by_path({}, {})".format(obj_id, pathFromObj))
+        logger.debug("-> _get_object_by_path({}, {})".format(obj_id, pathFromObj))
 
         raw_listing = self._get_listing(obj_id, None)
 
@@ -165,7 +167,7 @@ class GirderFS(LoggingMixIn, Operations):
             return None
 
     def _get_listing(self, obj_id: str, path: pathlib.Path) -> dict:
-        logging.debug("-> _get_listing({}, {})".format(obj_id, path))
+        logger.debug("-> _get_listing({}, {})".format(obj_id, path))
         try:
             entry = self.cache[obj_id]
             if not self._listing_is_current(entry, path):
@@ -177,10 +179,10 @@ class GirderFS(LoggingMixIn, Operations):
                 self.cache[obj_id] = entry
                 self._store_listing(entry, self._girder_get_listing(obj, path))
             except:
-                logging.error('Error updating cache', exc_info=True, stack_info=True)
+                logger.error('Error updating cache', exc_info=True, stack_info=True)
                 raise
         except Exception as ex:
-            logging.error('Error getting cached listing', exc_info=True, stack_info=True)
+            logger.error('Error getting cached listing', exc_info=True, stack_info=True)
             raise
         finally:
             return self.cache[obj_id].listing
@@ -204,18 +206,18 @@ class GirderFS(LoggingMixIn, Operations):
 
     def _listing_is_current(self, entry: CacheEntry, path: pathlib.Path):
         if entry.listing is None:
-            logging.debug("-> _listing_is_current({}, {}) - "
-                          "no listing in entry".format(entry.obj['_id'], path))
+            logger.debug("-> _listing_is_current({}, {}) - "
+                         "no listing in entry".format(entry.obj['_id'], path))
             return False
         if path is not None and self._is_mutable_dir(entry.obj, path):
-            logging.debug("-> _listing_is_current({}, {}) - "
-                          "dir is mutable".format(entry.obj['_id'], path))
+            logger.debug("-> _listing_is_current({}, {}) - "
+                         "dir is mutable".format(entry.obj['_id'], path))
             if not self._object_is_current(entry, path):
-                logging.debug("-> _listing_is_current({}, {}) - "
-                              "object not current".format(entry.obj['_id'], path))
+                logger.debug("-> _listing_is_current({}, {}) - "
+                             "object not current".format(entry.obj['_id'], path))
                 return False
-        logging.debug("-> _listing_is_current({}, {}) - "
-                      "current".format(entry.obj['_id'], path))
+        logger.debug("-> _listing_is_current({}, {}) - "
+                     "current".format(entry.obj['_id'], path))
         return True
 
     def _get_current_object(self, existing: dict):
@@ -230,34 +232,34 @@ class GirderFS(LoggingMixIn, Operations):
             return obj
 
     def _object_is_current(self, entry: CacheEntry, path: pathlib.Path):
-        if logging.isEnabledFor(logging.DEBUG):
-            logging.debug("-> _object_is_current({})".format(entry.obj))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("-> _object_is_current({})".format(entry.obj))
         now = time.time()
         if now - entry.loadTime < CACHE_ENTRY_STALE_TIME:
-            logging.debug("-> _object_is_current({}) - too soon".format(path))
+            logger.debug("-> _object_is_current({}) - too soon".format(path))
             return True
         obj = entry.obj
         newObj = self._load_object(str(obj['_id']), obj['_modelType'], path)
         if self._object_changed(newObj, obj):
             entry.obj = newObj
-            logging.debug("-> _object_is_current({}) - changed".format(path))
+            logger.debug("-> _object_is_current({}) - changed".format(path))
             return False
         else:
-            logging.debug("-> _object_is_current({}) - current".format(path))
+            logger.debug("-> _object_is_current({}) - current".format(path))
             return True
 
     def _is_mutable_dir(self, obj: dict, path: pathlib.Path):
         return False
 
     def _object_changed(self, newObj, oldObj):
-        logging.debug("-> _object_changed({}, {})".format(newObj['updated'], oldObj['updated']))
+        logger.debug("-> _object_changed({}, {})".format(newObj['updated'], oldObj['updated']))
         return newObj['updated'] != oldObj['updated']
 
     def _girder_get_listing(self, obj: dict, path: pathlib.Path):
         return self.girder_cli.get('dm/fs/%s/listing' % obj['_id'])
 
     def getattr(self, spath: str, fh=None):
-        logging.debug("-> getattr({})".format(spath))
+        logger.debug("-> getattr({})".format(spath))
         if spath == '/':
             now = _convert_time(str(datetime.datetime.now()))
             return dict(st_mode=(S_IFDIR | self._get_perm(spath, True)), st_nlink=2,
@@ -292,15 +294,15 @@ class GirderFS(LoggingMixIn, Operations):
         raise NotImplementedError
 
     def readdir(self, path, fh):
-        logging.debug("-> readdir({})".format(path))
+        logger.debug("-> readdir({})".format(path))
         dirents = ['.', '..']
         raw_listing = self._get_listing_by_path(path)
-        logging.debug('raw_listing: %s' % raw_listing)
+        logger.debug('raw_listing: %s' % raw_listing)
         dirents += raw_listing.keys()
         return dirents
 
     def _get_listing_by_path(self, spath):
-        logging.debug("-> _get_listing_by_path({})".format(spath))
+        logger.debug("-> _get_listing_by_path({})".format(spath))
         if spath == '/':
             return self._get_listing(self.root_id, ROOT_PATH)
         else:
@@ -309,7 +311,7 @@ class GirderFS(LoggingMixIn, Operations):
             return self._get_listing(str(obj['_id']), path)
 
     def getinfo(self, path):
-        logging.debug("-> getinfo({})".format(path))
+        logger.debug("-> getinfo({})".format(path))
         '''Pyfilesystem essential method'''
         if not path.startswith('/'):
             path = '/' + path
@@ -317,7 +319,7 @@ class GirderFS(LoggingMixIn, Operations):
 
     def listdir(self, path='./', wildcard=None, full=False, absolute=False,
                 dirs_only=False, files_only=False):
-        logging.debug("-> listdir({})".format(path))
+        logger.debug("-> listdir({})".format(path))
 
         if not path.startswith('/'):
             path = '/' + path
@@ -342,7 +344,7 @@ class GirderFS(LoggingMixIn, Operations):
         filesystems.
         '''
 
-        logging.debug("-> listdirinfo({})".format(path))
+        logger.debug("-> listdirinfo({})".format(path))
 
         def _get_stat(obj):
             ctime = _convert_time(obj["created"])
@@ -370,18 +372,18 @@ class GirderFS(LoggingMixIn, Operations):
 
     def isdir(self, path):
         '''Pyfilesystem essential method'''
-        logging.debug("-> isdir({})".format(path))
+        logger.debug("-> isdir({})".format(path))
         attr = self.getattr(path)
         return attr['st_nlink'] == 2
 
     def isfile(self, path):
         '''Pyfilesystem essential method'''
-        logging.debug("-> isfile({})".format(path))
+        logger.debug("-> isfile({})".format(path))
         attr = self.getattr(path)
         return attr['st_nlink'] == 1
 
     def destroy(self, private_data):
-        logging.debug("-> destroy()")
+        logger.debug("-> destroy()")
         not_removed = True
         while not_removed:
             not_removed = self.cache.clear()
@@ -411,17 +413,17 @@ class RESTGirderFS(GirderFS):
     """
 
     def read(self, path, size, offset, fh):
-        logging.debug("-> read({})".format(path))
+        logger.debug("-> read({})".format(path))
         obj, _ = self._get_object_from_root(_lstrip_path(path))
         cacheKey = '#'.join((obj['_id'], obj.get('updated', obj['created'])))
         fp = self.cache.get(cacheKey, read=True)
         if fp:
-            logging.debug(
+            logger.debug(
                 '-> hitting cache {} {} {}'.format(path, size, offset))
             fp.seek(offset)
             return fp.read(size)
         else:
-            logging.debug('-> downloading')
+            logger.debug('-> downloading')
             req = requests.get(
                 '%sitem/%s/download' % (self.girder_cli.urlBase, obj["_id"]),
                 headers={'Girder-Token': self.girder_cli.token}, stream=True)
@@ -435,7 +437,7 @@ class RESTGirderFS(GirderFS):
                 return fp.read(size)
 
     def open(self, path, mode="r", **kwargs):
-        logging.debug("-> open({}, {})".format(path, self.fd))
+        logger.debug("-> open({}, {})".format(path, self.fd))
         self.fd += 1
         return self.fd
 
@@ -443,7 +445,7 @@ class RESTGirderFS(GirderFS):
         GirderFS.destroy(self, private_data)
 
     def release(self, path, fh):  # pylint: disable=unused-argument
-        logging.debug("-> release({}, {})".format(path, self.fd))
+        logger.debug("-> release({}, {})".format(path, self.fd))
         self.fd -= 1
         return self.fd
 
@@ -565,8 +567,8 @@ class WtDmsGirderFS(GirderFS):
         return {'_id': id, 'name': name, 'created': ctime}
 
     def _add_session_entry(self, id: str, dse, prefix: List[str] = None):
-        if logging.isEnabledFor(logging.DEBUG):
-            logging.debug("-> _add_session_entry({}, {}, {})".format(id, dse, prefix))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("-> _add_session_entry({}, {}, {})".format(id, dse, prefix))
         # assume and strip root slash
         path = list(pathlib.PurePath(dse['mountPath']).parts)[1:]
         if prefix is not None:
@@ -577,11 +579,11 @@ class WtDmsGirderFS(GirderFS):
         subEntry = CacheEntry(obj)
         self.cache[str(obj['_id'])] = subEntry
         entry.add_to_listing(subEntry)
-        if logging.isEnabledFor(logging.DEBUG):
-            logging.debug("-> _add_session_entry updated entry is {}".format(entry))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("-> _add_session_entry updated entry is {}".format(entry))
 
     def _cache_mkdirs(self, id: str, path: List[str]):
-        logging.debug("-> _cache_mkdirs({}, {})".format(id, path))
+        logger.debug("-> _cache_mkdirs({}, {})".format(id, path))
         entry = self.cache[id]
         if len(path) == 0:
             return entry
@@ -606,7 +608,7 @@ class WtDmsGirderFS(GirderFS):
             return super()._object_changed(newObj, oldObj)
 
     def read(self, path, size, offset, fh):
-        logging.debug("-> read({}, offset={}, size={})".format(path, offset, size))
+        logger.debug("-> read({}, offset={}, size={})".format(path, offset, size))
 
         fdict = self.openFiles[path]
 
@@ -660,7 +662,7 @@ class WtDmsGirderFS(GirderFS):
     def _wait_for_region(self, path, fdict, offset, size):
         # Waits until enough of the file has been downloaded locally
         # to be able to read the necessary chunk of bytes
-        logging.debug("-> wait_for_region({}, {}, {})".format(path, offset, size))
+        logger.debug("-> wait_for_region({}, {}, {})".format(path, offset, size))
         while True:
             if fdict['downloaded']:
                 return
@@ -673,7 +675,7 @@ class WtDmsGirderFS(GirderFS):
 
     def open(self, path, mode=os.O_RDONLY, **kwargs):
         fd = self._next_fd()
-        logging.debug("-> open({}, {})".format(path, fd))
+        logger.debug("-> open({}, {})".format(path, fd))
         obj, _ = self._get_object_from_root(_lstrip_path(path))
         obj = self._get_item_unfiltered(self._get_id(obj))
         self._open(path, fd, obj)
@@ -755,15 +757,15 @@ class WtDmsGirderFS(GirderFS):
             try:
                 if 'path' in fdict:
                     fpath = fdict['path']
-                    logging.debug('-> destroy: removing {}'.format(fpath))
+                    logger.debug('-> destroy: removing {}'.format(fpath))
                     os.remove(fpath)
                 else:
-                    logging.debug('-> destroy: no physical path for {}'.format(path))
+                    logger.debug('-> destroy: no physical path for {}'.format(path))
             except:
                 pass
 
     def release(self, path, fh):  # pylint: disable=unused-argument
-        logging.debug("-> release({}, {})".format(path, fh))
+        logger.debug("-> release({}, {})".format(path, fh))
 
         lockId = None
         toClose = None
@@ -811,8 +813,8 @@ class UploadThread(threading.Thread):
         fp.seek(0, os.SEEK_END)
         size = fp.tell()
         fp.seek(0, os.SEEK_SET)
-        if logging.isEnabledFor(logging.DEBUG):
-            logging.debug('-> _upload({}, size={})'.format(obj, size))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug('-> _upload({}, size={})'.format(obj, size))
         if self._is_item(obj):
             obj = self._get_file(obj)
         self.cli.uploadFileContents(obj['_id'], fp, size)
@@ -843,7 +845,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
 
     def _invalidate_root(self, id: str):
         if not self.cache.delete(id):
-            logging.error('Object not in cache "%s" (%s)' % (id, type(id)))
+            logger.error('Object not in cache "%s" (%s)' % (id, type(id)))
 
     def _load_root(self):
         return None
@@ -856,7 +858,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
         return {'f_flag': os.ST_NOATIME + os.ST_NODEV + os.ST_NODIRATIME + os.ST_NOSUID}
 
     def chmod(self, path, mode):
-        logging.debug("-> chmod({}, {})".format(path, mode))
+        logger.debug("-> chmod({}, {})".format(path, mode))
 
         path = _lstrip_path(path)
         self._set_metadata(path, {'permissions': mode})
@@ -871,7 +873,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
         return obj
 
     def getattr(self, path, fh=None):
-        logging.debug("-> getattr({})".format(path))
+        logger.debug("-> getattr({})".format(path))
 
         if path == '/':
             now = _convert_time(str(datetime.datetime.now()))
@@ -908,7 +910,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
             return default
 
     def create(self, pathstr, mode, fi=None):
-        logging.debug("-> create({}, {})".format(pathstr, mode))
+        logger.debug("-> create({}, {})".format(pathstr, mode))
 
         path = _lstrip_path(pathstr)
         parentId = self._get_parent_id(path)
@@ -992,7 +994,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
         fdict['dirty'] = True
 
     def _create(self, path, parentId, perms):
-        logging.debug("-> _create({}, {}, {})".format(path, parentId, perms))
+        logger.debug("-> _create({}, {}, {})".format(path, parentId, perms))
         item = self.girder_cli.createItem(parentId, path.name)
         print(item)
         file = self.girder_cli.post('file', parameters={'parentType': 'item',
@@ -1011,7 +1013,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
         return 0
 
     def mkdir(self, path, mode):
-        logging.debug("-> mkdir({}, {})".format(path, mode))
+        logger.debug("-> mkdir({}, {})".format(path, mode))
 
         path = _lstrip_path(path)
         parentId = self._get_parent_id(path)
@@ -1035,7 +1037,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
             return obj['_id']
 
     def rmdir(self, path):
-        logging.debug("-> rmdir({})".format(path))
+        logger.debug("-> rmdir({})".format(path))
 
         path = _lstrip_path(path)
         if len(path.parts) == 0:
@@ -1050,7 +1052,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
         raise FuseOSError(EPERM)
 
     def rename(self, old, new):
-        logging.debug("-> rename({}, {})".format(old, new))
+        logger.debug("-> rename({}, {})".format(old, new))
 
         path = _lstrip_path(old)
         if len(path.parts) == 0:
@@ -1061,7 +1063,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
         obj['name'] = new
 
     def truncate(self, path, length, fh=None):
-        logging.debug("-> truncate({}, {}, {})".format(path, length, fh))
+        logger.debug("-> truncate({}, {}, {})".format(path, length, fh))
         # so fh=None means truncate() whereas fh != None means ftruncate
 
         # the basic workflow is to do i/o locally and commit when all of the following are true:
@@ -1090,7 +1092,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
             return fh
 
     def _ftruncate(self, path, fh, length):
-        logging.debug("-> _ftruncate({}, {}, {})".format(path, fh, length))
+        logger.debug("-> _ftruncate({}, {}, {})".format(path, fh, length))
         fp = None
         with self.flock:
             fdict = self.openFiles[path]
@@ -1109,7 +1111,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
         self._mark_dirty(path)
 
     def unlink(self, path):
-        logging.debug("-> unlink({})".format(path))
+        logger.debug("-> unlink({})".format(path))
         path = _lstrip_path(path)
         obj, objType = self._get_object_from_root(path)
         # should be the parent item
@@ -1117,7 +1119,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
         self._cache_remove_file(path)
 
     def write(self, path, data, offset, fh):
-        logging.debug("-> write({}, {}, {})".format(path, fh, offset))
+        logger.debug("-> write({}, {}, {})".format(path, fh, offset))
         fdict = self.openFiles[path]
         size = len(data)
 
@@ -1143,7 +1145,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
         fdict['localsize'] = sz
 
     def release(self, path, fh):  # pylint: disable=unused-argument
-        logging.debug("-> release2({}, {})".format(path, fh))
+        logger.debug("-> release2({}, {})".format(path, fh))
         with self.flock:
             writers = self._remove_writer(path, fh)
             fdict = self.openFiles[path]
@@ -1156,14 +1158,14 @@ class WtHomeGirderFS(WtDmsGirderFS):
         return WtDmsGirderFS.release(self, path, fh)
 
     def downloadCompleted(self, path, fdict):
-        logging.debug("-> downloadCompleted(path=%s)" % (path))
+        logger.debug("-> downloadCompleted(path=%s)" % (path))
         with self.flock:
             fdict['cached.locally'] = True
             if len(fdict['fds']) == 0:
                 self._commit(path, fdict)
 
     def open(self, path, mode=os.O_RDONLY, **kwargs):
-        logging.debug("-> open(path=%s, mode=%s)" % (path, mode))
+        logger.debug("-> open(path=%s, mode=%s)" % (path, mode))
         fd = WtDmsGirderFS.open(self, path, mode=mode, **kwargs)
         fdict = self.openFiles[path]
         if 'fds' not in fdict:
@@ -1186,7 +1188,7 @@ class WtHomeGirderFS(WtDmsGirderFS):
         return len(fdict['fds'])
 
     def _commit(self, path, fdict):
-        logging.debug("-> _commit({}, {}".format(path, fdict))
+        logger.debug("-> _commit({}, {}".format(path, fdict))
         fdict = self.openFiles[path]
         if 'dirty' in fdict and fdict['dirty']:
             self.flock.assertLocked()
@@ -1214,20 +1216,20 @@ class LocalGirderFS(GirderFS):
     """
 
     def open(self, path, mode="r", **kwargs):
-        logging.debug("-> open({})".format(path))
+        logger.debug("-> open({})".format(path))
         obj, _ = self._get_object_from_root(_lstrip_path(path))
         return os.open(obj['path'], os.O_RDONLY)
         # return open(obj['path'], mode)   # pyfilesystem
 
     def read(self, path, size, offset, fh):
-        logging.debug("-> read({})".format(path))
+        logger.debug("-> read({})".format(path))
         obj, _ = self._get_object_from_root(_lstrip_path(path))
         fh = os.open(obj['path'], os.O_RDONLY)
         os.lseek(fh, offset, 0)
         return os.read(fh, size)
 
     def release(self, path, fh):  # pylint: disable=unused-argument
-        logging.debug("-> release({})".format(path))
+        logger.debug("-> release({})".format(path))
         return os.close(fh)
 
 
@@ -1392,7 +1394,7 @@ class WtVersionsFS(WtDmsGirderFS):
         return False
 
     def _reload_file(self, file: dict) -> dict:
-        logging.debug("-> _reload({})".format(file['_id']))
+        logger.debug("-> _reload({})".format(file['_id']))
         return self.girder_cli.get('file/%s' % file['_id'])
 
     def _wait_for_file(self, fdict):
@@ -1495,18 +1497,18 @@ class CacheFile:
         CacheFile.block_size_check_done = True
 
     def adjust_and_start_download(self, fh: int, start: int, len: int):
-        logging.debug("-> adjust_and_start_download({}, {}, {}, {})".format(self.name, fh, start, len))
+        logger.debug("-> adjust_and_start_download({}, {}, {}, {})".format(self.name, fh, start, len))
         while True:
             # wait for overlapping transfers
             w = None
-            logging.debug("-> adjust_and_start_download - wait for lock")
+            logger.debug("-> adjust_and_start_download - wait for lock")
             with self.lock:
                 for d in self.active_downloads.values():
                     if d.overlaps(start, len):
-                        logging.debug("-> adjust_and_start_download - overlaps {}".format(d))
+                        logger.debug("-> adjust_and_start_download - overlaps {}".format(d))
                         w = d
                 if w is None:
-                    logging.debug("-> adjust_and_start_download - no overlapping downloads")
+                    logger.debug("-> adjust_and_start_download - no overlapping downloads")
                     start, len = self._adjust_download(fh, start, len)
                     if len > 0:
                         self._begin_download(fh, start, len)
@@ -1514,13 +1516,13 @@ class CacheFile:
             # w is not None
             with w.cond:
                 while not w.done:
-                    logging.debug("-> adjust_and_start_download - waiting for {}".format(w))
+                    logger.debug("-> adjust_and_start_download - waiting for {}".format(w))
                     w.cond.wait()
 
 
     def _adjust_download(self, fh: int, start: int, len: int):
         assert self.lock.locked()
-        logging.debug("-> _adjust_download({}, {}, {}, {})".format(self.name, fh, start, len))
+        logger.debug("-> _adjust_download({}, {}, {}, {})".format(self.name, fh, start, len))
         f = open(self.name, 'rb')
         end = start + len
         # read() might be invoked with a size that gets us past the end of file, so adjust
@@ -1598,7 +1600,7 @@ class CacheFile:
         self.active_downloads[fh] = ActiveDownload(start, len)
 
     def end_download(self, fh):
-        logging.debug("-> _end_download({}, {})".format(self.name, fh))
+        logger.debug("-> _end_download({}, {})".format(self.name, fh))
         delete = True
         with self.lock:
             d = self.active_downloads[fh]
@@ -1662,13 +1664,13 @@ class WtRunsFS(WtVersionsFS):
         return WtDmsGirderFS._girder_get_listing(self, obj, path)
 
     def _get_object_from_root(self, path: pathlib.Path) -> Tuple[dict, str]:
-        logging.debug("-> _get_object_from_root({})".format(path))
+        logger.debug("-> _get_object_from_root({})".format(path))
         (obj, type) = self._get_object_by_path(self.root_id, path)
         if type in ['file', 'item']:
             # most of these are obtained through listings, so this is an appropriate place
             # to check for mutability
             if self._is_mutable_file(path):
-                logging.debug("-> _get_object_from_root({}) - is mutable".format(path))
+                logger.debug("-> _get_object_from_root({}) - is mutable".format(path))
                 id = str(obj['_id'])
                 try:
                     entry = self.cache[id]
@@ -1711,7 +1713,7 @@ class WtRunsFS(WtVersionsFS):
             cache = fdict.get('cache', None)
             updated = fdict.get('updated', None)
             if cache is None or obj['updated'] != updated:
-                logging.debug("-> _ensure_region_available({}) - invalidating cache".format(path))
+                logger.debug("-> _ensure_region_available({}) - invalidating cache".format(path))
                 cache = self._invalidate_cache(fh, fdict, obj)
 
         offset, size = cache.adjust_and_start_download(fh, offset, size)
@@ -1760,7 +1762,7 @@ class WtRunsFS(WtVersionsFS):
         return stat
 
     def readlink(self, spath: str):
-        logging.debug("-> readlink({})".format(spath))
+        logger.debug("-> readlink({})".format(spath))
         path = _lstrip_path(spath)
         obj, obj_type = self._get_object_from_root(path)
         target = obj['linkTarget']
@@ -1779,8 +1781,8 @@ class WtRunsFS(WtVersionsFS):
     def _timed_cache(self, id: str, path: pathlib.Path, method, *args):
         # I don't like this method. Or maybe I don't like the other method that kinda does a
         # similary thing.
-        if logging.isEnabledFor(logging.DEBUG):
-            logging.debug("-> _timed_cache({}, {}, {})".format(id, method, args))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("-> _timed_cache({}, {}, {})".format(id, method, args))
         now = time.time()
         try:
             entry = self.cache[id]
