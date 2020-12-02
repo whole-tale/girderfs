@@ -605,7 +605,10 @@ class WtDmsGirderFS(GirderFS):
         return path == ROOT_PATH
 
     def _object_changed(self, newObj, oldObj):
-        if oldObj['_modelType'] == 'session':
+        if 'seq' in oldObj and not 'updated' in oldObj:
+            # if oldObj['_modelType'] == 'session':
+            # the line above doesn't work since the object type is overriden to
+            # "folder"
             oldSeq = oldObj['seq'] if 'seq' in oldObj else None
             newSeq = newObj['seq'] if 'seq' in newObj else None
             return oldSeq != newSeq
