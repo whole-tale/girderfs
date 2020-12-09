@@ -7,7 +7,6 @@ import datetime
 import logging
 import os
 import pathlib
-import pprint
 import shutil
 import sys
 import tempfile
@@ -124,9 +123,12 @@ class GirderFS(LoggingMixIn, Operations):
         self.fd = 0
         self.default_file_perm = default_file_perm
         self.default_dir_perm = default_dir_perm
+        self._init_cache()
+        self.root = self._load_object(self.root_id, root_model, None)
+
+    def _init_cache(self):
         self.cachedir = tempfile.mkdtemp(prefix='wtdm')
         self.cache = CacheWrapper(diskcache.Cache(self.cachedir))
-        self.root = self._load_object(self.root_id, root_model, None)
 
     def _load_object(self, id: str, model: str, path: pathlib.Path):
         if model is None and id == self.root_id:
@@ -543,11 +545,14 @@ class WtDmsGirderFS(GirderFS):
         self.locks = {}
         self.fobjs = {}
         self.ctime = int(time.time())
+
+    def _init_cache(self):
         self.cache = CacheWrapper(DictCache())
 
     def _load_object(self, id: str, model: str, path: pathlib.Path):
         if id == self.root_id:
             root = self.girder_cli.get('dm/session/%s?loadObjects=true' % self.root_id)
+            self.cache[id] = CacheEntry(root)
             self._populate_mount_points(root['dataSet'])
             return self._add_model('folder', root)
         else:
@@ -600,7 +605,10 @@ class WtDmsGirderFS(GirderFS):
         return path == ROOT_PATH
 
     def _object_changed(self, newObj, oldObj):
-        if oldObj['_modelType'] == 'session':
+        if 'seq' in oldObj and not 'updated' in oldObj:
+            # if oldObj['_modelType'] == 'session':
+            # the line above doesn't work since the object type is overriden to
+            # "folder"
             oldSeq = oldObj['seq'] if 'seq' in oldObj else None
             newSeq = newObj['seq'] if 'seq' in newObj else None
             return oldSeq != newSeq
