@@ -1264,6 +1264,7 @@ class WtVersionsFS(WtDmsGirderFS):
 
     def __init__(self, tale_id, gc):
         self.tale_id = tale_id
+        self.root_id = tale_id
         WtDmsGirderFS.__init__(self, tale_id, gc,
                                default_file_perm=0o444, default_dir_perm=0o555)
         self.session_id = None  # TODO: fixme
@@ -1274,20 +1275,17 @@ class WtVersionsFS(WtDmsGirderFS):
         return 'version'
 
     def _load_object(self, id: str, model: str, path: pathlib.Path):
-        if id == self.root_id:
-            versions_folder = self.girder_cli.get(
-                f"{self._resource_name}/root", parameters={"taleId": self.tale_id}
-            )
-            self.root_id = str(versions_folder['_id'])
-            return self._add_model('folder', versions_folder)
+        if id == self.tale_id:
+            tale = self.girder_cli.get('tale/%s' % self.tale_id)
+            return self._add_model('tale', tale)
         else:
             return super()._load_object(id, model, path)
 
     def _girder_get_listing(self, obj: dict, path: pathlib.Path):
         if str(obj['_id']) == self.root_id:
             return {
-                'folders': self.girder_cli.get('%s?rootId=%s' %
-                                               (self._resource_name, self.root_id)),
+                'folders': self.girder_cli.get('%s?taleId=%s' %
+                                               (self._resource_name, self.tale_id)),
                 'files': []
             }
         elif str(obj['parentId']) == self.root_id:
