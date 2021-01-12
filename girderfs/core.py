@@ -347,30 +347,10 @@ class GirderFS(LoggingMixIn, Operations):
         '''
 
         logger.debug("-> listdirinfo({})".format(path))
-
-        def _get_stat(obj):
-            ctime = _convert_time(obj["created"])
-            try:
-                mtime = _convert_time(obj["updated"])
-            except KeyError:
-                mtime = ctime
-            return dict(st_ctime=ctime, st_mtime=mtime,
-                        st_size=obj["size"], st_atime=time.time())
-
-        listdir = []
-        raw_listing = self._get_listing_by_path(path)
-
-        for obj in raw_listing['files']:
-            stat = dict(st_mode=(S_IFREG | self.default_file_perm), st_nlink=1)
-            stat.update(_get_stat(obj))
-            listdir.append((obj['name'], stat))
-
-        for obj in raw_listing['folders']:
-            stat = dict(st_mode=(S_IFDIR | self.default_dir_perm), st_nlink=2)
-            stat.update(_get_stat(obj))
-            listdir.append((obj['name'], stat))
-
-        return listdir
+        return [
+            (name, self.getattr(os.path.join(path, name)))
+            for name in self._get_listing_by_path(path).keys()
+        ]
 
     def isdir(self, path):
         '''Pyfilesystem essential method'''
