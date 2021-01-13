@@ -26,10 +26,17 @@ from dateutil.parser import parse as tparse
 from fuse import Operations, LoggingMixIn, FuseOSError
 from girder_client import GirderClient
 
-# http://stackoverflow.com/questions/9144724/
 
-logging.basicConfig(format='%(asctime)-15s %(levelname)s:%(message)s', level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.ERROR)
+stdout_handler = logging.StreamHandler(sys.stdout)
+if os.environ.get("GIRDERFS_DEBUG"):
+    stdout_handler.setLevel(logging.DEBUG)
+else:
+    stdout_handler.setLevel(logging.WARNING)
+custom_log_format = logging.Formatter("%(asctime)-15s %(levelname)s:%(message)s")
+stdout_handler.setFormatter(custom_log_format)
+logger.addHandler(stdout_handler)
 
 CACHE_ENTRY_STALE_TIME = 1.0 # seconds
 ROOT_PATH = pathlib.Path('/')
