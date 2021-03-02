@@ -637,6 +637,7 @@ class WtDmsGirderFS(GirderFS):
     def _wait_for_file(self, fdict):
         # Waits for the file to be downloaded/cached by the DMS
         obj = fdict['obj']
+        timeout = 0.1
         while True:
             try:
                 if obj['dm']['cached']:
@@ -644,7 +645,8 @@ class WtDmsGirderFS(GirderFS):
             except KeyError:
                 pass
 
-            time.sleep(1.0)
+            time.sleep(timeout)
+            timeout = min(timeout * 2, 1.0)
             obj = self._get_item_unfiltered(obj['_id'])
             fdict['obj'] = obj
 
