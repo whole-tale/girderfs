@@ -67,13 +67,13 @@ class DictCache(dict):
 class CacheEntry:
     def __init__(self, obj: dict, listing: dict = None, pinned=False):
         self.obj = obj
+        if listing is None:
+            listing = {}
         self.listing = listing
         self.loadTime = time.time()
         self.pinned = pinned
 
     def add_to_listing(self, entry: 'CacheEntry'):
-        if self.listing is None:
-            self.listing = {}
         self.listing[entry.obj['name']] = entry
 
     def __str__(self):
