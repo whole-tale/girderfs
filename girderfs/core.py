@@ -551,6 +551,11 @@ class WtDmsGirderFS(GirderFS):
         for entry in dataSet:
             self._add_session_entry(self.root_id, entry)
 
+    def _girder_get_listing(self, obj: dict, path: pathlib.Path):
+        if obj["_id"] == self.root_id:
+            return self.girder_cli.get('dm/session/%s?loadObjects=true' % self.root_id)
+        return super()._girder_get_listing(obj, path)
+
     def _fake_obj(self, fs_type: str, name=None, id=None, ctime=None):
         if ctime is None:
             ctime = self.ctime
