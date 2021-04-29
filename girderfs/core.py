@@ -539,7 +539,7 @@ class WtDmsGirderFS(GirderFS):
     def _load_object(self, id: str, model: str, path: pathlib.Path):
         if id == self.root_id:
             root = self.girder_cli.get('dm/session/%s?loadObjects=true' % self.root_id)
-            self.cache[id] = CacheEntry(root)
+            self.cache[id] = CacheEntry(root, listing={})
             self._populate_mount_points(root['dataSet'])
             return self._add_model('folder', root)
         else:
