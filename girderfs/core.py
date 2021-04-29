@@ -581,8 +581,12 @@ class WtDmsGirderFS(GirderFS):
             return entry
         crt = path[0]
 
-        obj = self._fake_obj(fs_type='folder', name=crt)
-        subEntry = CacheEntry(obj)
+        if entry.listing and crt in entry.listing:
+            subEntry = entry.listing[crt]
+            obj = subEntry.obj
+        else:
+            obj = self._fake_obj(fs_type='folder', name=crt)
+            subEntry = CacheEntry(obj)
         entry.add_to_listing(subEntry)
         self.cache[str(obj['_id'])] = subEntry
 
