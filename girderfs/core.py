@@ -551,12 +551,12 @@ class WtDmsGirderFS(GirderFS):
         for entry in dataSet:
             self._add_session_entry(self.root_id, entry)
 
-    def _fake_obj(self, fs_type: str, name=None, id=None, ctime=None):
+    def _fake_obj(self, fs_type: str, name=None, id=None, ctime=None, size=0):
         if ctime is None:
             ctime = self.ctime
         if id is None:
             id = uuid.uuid1()
-        return {'_id': id, 'name': name, 'created': ctime}
+        return {'_id': id, 'name': name, 'created': ctime, '_modelType': fs_type, 'size': size}
 
     def _add_session_entry(self, id: str, dse, prefix: List[str] = None):
         if logger.isEnabledFor(logging.DEBUG):
