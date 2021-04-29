@@ -531,9 +531,9 @@ class WtDmsGirderFS(GirderFS):
         self.openFiles = {}
         self.locks = {}
         self.fobjs = {}
-        self.ctime = int(time.time())
 
     def _init_cache(self):
+        self.ctime = time.ctime(time.time())
         self.cache = CacheWrapper(DictCache())
 
     def _load_object(self, id: str, model: str, path: pathlib.Path):
