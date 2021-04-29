@@ -531,6 +531,8 @@ class WtDmsGirderFS(GirderFS):
         self.openFiles = {}
         self.locks = {}
         self.fobjs = {}
+        # call _girder_get_listing to pre-populate cache with mount point structure
+        self._girder_get_listing(self.root, None)
 
     def _init_cache(self):
         self.ctime = time.ctime(time.time())
@@ -538,12 +540,17 @@ class WtDmsGirderFS(GirderFS):
 
     def _load_object(self, id: str, model: str, path: pathlib.Path):
         if id == self.root_id:
-            root = self.girder_cli.get('dm/session/%s?loadObjects=true' % self.root_id)
-            self.cache[id] = CacheEntry(root, listing={})
-            self._populate_mount_points(root['dataSet'])
-            return self._add_model('folder', root)
+            return self._add_model('folder', self.girder_cli.get('dm/session/%s' % self.root_id))
         else:
             return super()._load_object(id, model, path)
+
+    def _girder_get_listing(self, obj: dict, path: pathlib.Path):
+        if obj["_id"] == self.root_id:
+            root = self.girder_cli.get('dm/session/%s?loadObjects=true' % self.root_id)
+            self.cache[self.root_id] = CacheEntry(root, listing={})
+            self._populate_mount_points(root['dataSet'])
+            return self._add_model('folder', root)
+        return super()._girder_get_listing(obj, path)
 
     def _populate_mount_points(self, dataSet: dict) -> None:
         # mount points can have arbitrary depth, so pre-populate the cache with
