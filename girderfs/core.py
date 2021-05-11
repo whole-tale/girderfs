@@ -531,19 +531,26 @@ class WtDmsGirderFS(GirderFS):
         self.openFiles = {}
         self.locks = {}
         self.fobjs = {}
-        self.ctime = int(time.time())
+        # call _girder_get_listing to pre-populate cache with mount point structure
+        self._girder_get_listing(self.root, None)
 
     def _init_cache(self):
+        self.ctime = time.ctime(time.time())
         self.cache = CacheWrapper(DictCache())
 
     def _load_object(self, id: str, model: str, path: pathlib.Path):
         if id == self.root_id:
-            root = self.girder_cli.get('dm/session/%s?loadObjects=true' % self.root_id)
-            self.cache[id] = CacheEntry(root)
-            self._populate_mount_points(root['dataSet'])
-            return self._add_model('folder', root)
+            return self._add_model('folder', self.girder_cli.get('dm/session/%s' % self.root_id))
         else:
             return super()._load_object(id, model, path)
+
+    def _girder_get_listing(self, obj: dict, path: pathlib.Path):
+        if obj["_id"] == self.root_id:
+            root = self.girder_cli.get('dm/session/%s?loadObjects=true' % self.root_id)
+            self.cache[self.root_id] = CacheEntry(root, listing={})
+            self._populate_mount_points(root['dataSet'])
+            return self._add_model('folder', root)
+        return super()._girder_get_listing(obj, path)
 
     def _populate_mount_points(self, dataSet: dict) -> None:
         # mount points can have arbitrary depth, so pre-populate the cache with
@@ -551,12 +558,12 @@ class WtDmsGirderFS(GirderFS):
         for entry in dataSet:
             self._add_session_entry(self.root_id, entry)
 
-    def _fake_obj(self, fs_type: str, name=None, id=None, ctime=None):
+    def _fake_obj(self, fs_type: str, name=None, id=None, ctime=None, size=0):
         if ctime is None:
             ctime = self.ctime
         if id is None:
             id = uuid.uuid1()
-        return {'_id': id, 'name': name, 'created': ctime}
+        return {'_id': id, 'name': name, 'created': ctime, '_modelType': fs_type, 'size': size}
 
     def _add_session_entry(self, id: str, dse, prefix: List[str] = None):
         if logger.isEnabledFor(logging.DEBUG):
@@ -581,8 +588,12 @@ class WtDmsGirderFS(GirderFS):
             return entry
         crt = path[0]
 
-        obj = self._fake_obj(fs_type='folder', name=crt)
-        subEntry = CacheEntry(obj)
+        if entry.listing and crt in entry.listing:
+            subEntry = entry.listing[crt]
+            obj = subEntry.obj
+        else:
+            obj = self._fake_obj(fs_type='folder', name=crt)
+            subEntry = CacheEntry(obj)
         entry.add_to_listing(subEntry)
         self.cache[str(obj['_id'])] = subEntry
 
