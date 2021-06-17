@@ -26,7 +26,7 @@ class DownloadThread(threading.Thread):
         self.stream = stream
         self.fdict = fdict
         self.lock = lock
-        self.limit = sys.MAXSIZE
+        self.limit = sys.maxsize
         self.fs = fs
 
     def run(self):
