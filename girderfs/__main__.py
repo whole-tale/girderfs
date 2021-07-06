@@ -56,6 +56,7 @@ def main(args=None):
             "wt_dms",
             "wt_home",
             "wt_work",
+            "wt_run",
             "wt_versions",
             "wt_runs",
         ],
@@ -108,6 +109,19 @@ def main(args=None):
             ro=True,
             allow_other=True,
         )
+    elif args.c == "wt_run":
+        user = gc.get("/user/me")
+        args = {
+            "user": user["login"],
+            "pass": "token:{}".format(gc.token),
+            "dest": args.local_folder,
+            "runId": args.remote_folder,
+            "opts": "-o uid=1000,gid=100",  # FIXME
+            "url": gc.urlBase.replace("api/v1", "runs").rstrip("/"),  # FIXME
+        }
+        cmd = 'echo "{user}\n{pass}" | mount.davfs {opts} {url}/{runId} {dest}'
+        cmd = cmd.format(**args)
+        subprocess.check_output(cmd, shell=True)  # FIXME
     elif args.c == "wt_work":
         user = gc.get("/user/me")
         args = {
