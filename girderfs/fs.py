@@ -11,7 +11,7 @@ from fs.path import basename
 from fs.permissions import Permissions
 from girder_client import GirderClient
 
-from girderfs.core import WtDmsGirderFS
+from girderfs.dms import WtDmsGirderFS
 
 
 class DMSFS(FS):
