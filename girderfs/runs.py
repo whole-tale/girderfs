@@ -30,7 +30,15 @@ class WtRunsFS(WtVersionsFS):
 
     def _girder_get_listing(self, obj: dict, path: pathlib.Path):
         # override to bypass the session caching stuff from the versions FS
-        return WtDmsGirderFS._girder_get_listing(self, obj, path)
+        if str(obj["_id"]) == self.root_id:
+            return {
+                "folders": self.girder_cli.get(
+                    "%s?taleId=%s" % (self._resource_name, self.tale_id)
+                ),
+                "files": [],
+            }
+        else:
+            return WtDmsGirderFS._girder_get_listing(self, obj, path)
 
     def _get_object_from_root(self, path: pathlib.Path) -> Tuple[dict, str]:
         logger.debug("-> _get_object_from_root({})".format(path))
