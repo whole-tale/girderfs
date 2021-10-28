@@ -116,7 +116,7 @@ def main(args=None):
             "pass": "token:{}".format(gc.token),
             "dest": args.local_folder,
             "runId": args.remote_folder,
-            "opts": "-o uid=1000,gid=100",  # FIXME
+            "opts": "-o uid=1000,gid=100,file_mode=0600,dir_mode=2700",  # FIXME
             "url": gc.urlBase.replace("api/v1", "runs").rstrip("/"),  # FIXME
         }
         cmd = 'echo "{user}\n{pass}" | mount.davfs {opts} {url}/{runId} {dest}'
@@ -129,7 +129,7 @@ def main(args=None):
             "pass": "token:{}".format(gc.token),
             "dest": args.local_folder,
             "tale": args.remote_folder,
-            "opts": "-o uid=1000,gid=100",  # FIXME
+            "opts": "-o uid=1000,gid=100,file_mode=0600,dir_mode=2700",  # FIXME
             "url": gc.urlBase.replace("api/v1", "tales").rstrip("/"),  # FIXME
         }
         cmd = 'echo "{user}\n{pass}" | mount.davfs {opts} {url}/{tale} {dest}'
@@ -141,7 +141,7 @@ def main(args=None):
             "user": user["login"],
             "pass": "token:{}".format(gc.token),
             "dest": args.local_folder,
-            "opts": "-o uid=1000,gid=100",  # FIXME
+            "opts": "-o uid=1000,gid=100,file_mode=0600,dir_mode=2700",  # FIXME
             "url": gc.urlBase.replace("api/v1", "homes").rstrip("/"),  # FIXME
         }
         cmd = 'echo "{user}\n{pass}" | mount.davfs {opts} {url}/{user} {dest}'
