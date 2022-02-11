@@ -1,13 +1,14 @@
 import logging
 import os
 import pathlib
+import re
 import sys
 import tempfile
 import threading
 import time
 import traceback
 import uuid
-from errno import EIO
+from errno import EIO, EPERM
 from typing import List
 
 import requests
@@ -256,6 +257,8 @@ class WtDmsGirderFS(GirderFS):
 
             try:
                 if obj["dm"]["transferError"]:
+                    if re.match("^40[13] Client Error:", obj["dm"]["transferErrorMessage"]):
+                        raise FuseOSError(EPERM)
                     raise OSError(EIO, os.strerror(EIO))
             except KeyError:
                 pass
