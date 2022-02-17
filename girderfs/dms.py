@@ -218,8 +218,9 @@ class WtDmsGirderFS(GirderFS):
             self.fobjs[fh] = open(fdict["path"], "r+b")
         fp = self.fobjs[fh]
 
-        fp.seek(offset)
-        return fp.read(size)
+        with self.flock:
+            fp.seek(offset)
+            return fp.read(size)
 
     def _ensure_region_available(self, path, fdict, fh, offset, size):
         self._wait_for_file(fdict)
