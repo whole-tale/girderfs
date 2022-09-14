@@ -271,7 +271,8 @@ class WtDmsGirderFS(GirderFS):
         while True:
             if fdict["downloaded"]:
                 return
-            if fdict["written"] >= offset + size:
+            limit = offset + size
+            if limit > 0 and fdict["written"] >= limit:
                 return
             time.sleep(0.1)
 
