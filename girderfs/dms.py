@@ -117,12 +117,16 @@ class WtDmsGirderFS(GirderFS):
         self.openFiles = {}
         self.locks = {}
         self.fobjs = {}
+        self.ctime = time.ctime(time.time())
         # call _girder_get_listing to pre-populate cache with mount point structure
         self._girder_get_listing(self.root, None)
 
-    def _init_cache(self):
-        self.ctime = time.ctime(time.time())
-        self.cache = CacheWrapper()
+    @property
+    def cache(self):
+        """This cache is for requests only. DownloadThread has its own for files."""
+        if self._cache is None:
+            self._cache = CacheWrapper()
+        return self._cache
 
     def _load_object(self, id: str, model: str, path: pathlib.Path):
         if id == self.root_id:

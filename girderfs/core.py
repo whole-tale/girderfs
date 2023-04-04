@@ -30,6 +30,9 @@ class GirderFS(LoggingMixIn, Operations):
     :type girder_cli: girder_client.GriderClient
     """
 
+    _cachedir = None
+    _cache = None
+
     def __init__(
         self,
         root_id,
@@ -45,12 +48,19 @@ class GirderFS(LoggingMixIn, Operations):
         self.fd = 0
         self.default_file_perm = default_file_perm
         self.default_dir_perm = default_dir_perm
-        self._init_cache()
         self.root = self._load_object(self.root_id, root_model, None)
 
-    def _init_cache(self):
-        self.cachedir = tempfile.mkdtemp(prefix="wtdm")
-        self.cache = CacheWrapper(diskcache.Cache(self.cachedir))
+    @property
+    def cachedir(self):
+        if not self._cachedir:
+            self._cachedir = tempfile.mkdtemp(prefix="wtdm")
+        return self._cachedir
+
+    @property
+    def cache(self):
+        if self._cache is None:
+            self._cache = CacheWrapper(diskcache.Cache(self.cachedir))
+        return self._cache
 
     def _load_object(self, id: str, model: str, path: pathlib.Path):
         if model is None and id == self.root_id:
