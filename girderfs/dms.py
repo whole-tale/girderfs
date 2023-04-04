@@ -104,8 +104,7 @@ class WtDmsGirderFS(GirderFS):
     """
 
     def __init__(self, sessionId, gc, default_file_perm=0o644, default_dir_perm=0o755):
-        GirderFS.__init__(
-            self,
+        super().__init__(
             str(sessionId),
             gc,
             root_model="session",
@@ -369,8 +368,6 @@ class WtDmsGirderFS(GirderFS):
         self.girder_cli.delete("dm/lock/%s" % (lockId))
 
     def destroy(self, private_data):
-        GirderFS.destroy(self, private_data)
-
         for path in list(self.openFiles.keys()):
             fdict = self.openFiles[path]
             try:
@@ -382,6 +379,8 @@ class WtDmsGirderFS(GirderFS):
                     logger.debug("-> destroy: no physical path for {}".format(path))
             except Exception:
                 pass
+        super().destroy(private_data)
+
 
     def release(self, path, fh):  # pylint: disable=unused-argument
         logger.debug("-> release({}, {})".format(path, fh))
