@@ -104,8 +104,7 @@ class WtDmsGirderFS(GirderFS):
     """
 
     def __init__(self, sessionId, gc, default_file_perm=0o644, default_dir_perm=0o755):
-        GirderFS.__init__(
-            self,
+        super().__init__(
             str(sessionId),
             gc,
             root_model="session",
@@ -117,12 +116,16 @@ class WtDmsGirderFS(GirderFS):
         self.openFiles = {}
         self.locks = {}
         self.fobjs = {}
+        self.ctime = time.ctime(time.time())
         # call _girder_get_listing to pre-populate cache with mount point structure
         self._girder_get_listing(self.root, None)
 
-    def _init_cache(self):
-        self.ctime = time.ctime(time.time())
-        self.cache = CacheWrapper()
+    @property
+    def cache(self):
+        """This cache is for requests only. DownloadThread has its own for files."""
+        if self._cache is None:
+            self._cache = CacheWrapper()
+        return self._cache
 
     def _load_object(self, id: str, model: str, path: pathlib.Path):
         if id == self.root_id:
@@ -365,8 +368,6 @@ class WtDmsGirderFS(GirderFS):
         self.girder_cli.delete("dm/lock/%s" % (lockId))
 
     def destroy(self, private_data):
-        GirderFS.destroy(self, private_data)
-
         for path in list(self.openFiles.keys()):
             fdict = self.openFiles[path]
             try:
@@ -378,6 +379,8 @@ class WtDmsGirderFS(GirderFS):
                     logger.debug("-> destroy: no physical path for {}".format(path))
             except Exception:
                 pass
+        super().destroy(private_data)
+
 
     def release(self, path, fh):  # pylint: disable=unused-argument
         logger.debug("-> release({}, {})".format(path, fh))
