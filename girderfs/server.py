@@ -93,8 +93,6 @@ class MainHandler(tornado.web.RequestHandler):
                 cmd = cmd.format(**args)
             elif mount["protocol"] == MountProtocols.girderfs:
                 gcObj, fs_type = self.mounttype_to_fs(mount["type"])
-                if not gcObj:
-                    continue
                 cmd = (
                     f"girderfs -c {fs_type} "
                     f"--api-url {self.state['girderApiUrl']} "
@@ -164,8 +162,6 @@ class MainHandler(tornado.web.RequestHandler):
                     )
                 else:
                     dataset = self.state["tale"]["dataSet"]
-                if not dataset:
-                    return None, None
                 self.state["session"] = self.gc.post(
                     "dm/session", parameters={"dataSet": json.dumps(dataset)}
                 )
