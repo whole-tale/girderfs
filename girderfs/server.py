@@ -78,6 +78,8 @@ class MainHandler(tornado.web.RequestHandler):
             if not os.path.exists(destination):
                 os.makedirs(destination)
 
+            gcObj, fs_type = self.mounttype_to_fs(mount["protocol"], mount["type"])
+
             if mount["protocol"] == MountProtocols.webdav:
                 girder_url = self.gc.urlBase.replace("api/v1", "").rstrip("/")
                 args = {
@@ -92,7 +94,6 @@ class MainHandler(tornado.web.RequestHandler):
                 )
                 cmd = cmd.format(**args)
             elif mount["protocol"] == MountProtocols.girderfs:
-                gcObj, fs_type = self.mounttype_to_fs(mount["type"])
                 cmd = (
                     f"girderfs -c {fs_type} "
                     f"--api-url {self.state['girderApiUrl']} "
@@ -150,24 +151,29 @@ class MainHandler(tornado.web.RequestHandler):
         elif mount_type == MountTypes.workspace:
             return f"/tales/{self.state['tale']['_id']}"
 
-    def mounttype_to_fs(self, mount_type):
+    def mounttype_to_fs(self, protocol, mount_type):
         if mount_type == MountTypes.versions:
             return self.state["tale"], "wt_versions"
         elif mount_type == MountTypes.data:
-            if "session" not in self.state:
-                dataset = None
-                if "run" in self.state:
-                    dataset = self.gc.get(
-                        f"version/{self.state['run']['runVersionId']}/dataSet"
-                    )
-                else:
-                    dataset = self.state["tale"]["dataSet"]
+            dataset = None
+            if "run" in self.state:
+                dataset = self.gc.get(
+                    f"version/{self.state['run']['runVersionId']}/dataSet"
+                )
+            else:
+                dataset = self.state["tale"]["dataSet"]
+
+            if protocol == MountProtocols.girderfs and "session" not in self.state:
                 self.state["session"] = self.gc.post(
                     "dm/session", parameters={"dataSet": json.dumps(dataset)}
                 )
-            return self.state["session"], "wt_dms"
+                return self.state["session"], "wt_dms"
+            elif protocol == MountProtocols.passthrough:
+                # We are assuming that dataset is a single folder
+                return self.gc.get(f"/folder/{dataset[0]['itemId']}"), ""
         elif mount_type == MountTypes.runs:
             return self.state["tale"], "wt_runs"
+        return None, None
 
 
 def main():
