@@ -115,6 +115,7 @@ class MainHandler(tornado.web.RequestHandler):
             subprocess.check_output(cmd, shell=True)
 
     def delete(self):
+        errmsg = ""
         for mount in self.state["mounts"]:
             destination = os.path.join(self.state["root"], mount["location"])
             if mount["protocol"] == MountProtocols.webdav:
@@ -125,12 +126,28 @@ class MainHandler(tornado.web.RequestHandler):
                 cmd = f"sudo umount {destination}"
             elif mount["protocol"] == MountProtocols.passthrough:
                 cmd = f"sudo umount {destination}"
-            subprocess.check_output(cmd, shell=True)
-            os.rmdir(destination)
-        os.rmdir(self.state["root"])
+            try:
+                subprocess.check_output(cmd, shell=True)
+                os.rmdir(destination)
+            except (subprocess.CalledProcessError, OSError):
+                errmsg += "Failed to unmount {} \n".format(destination)
+                pass
+        try:
+            os.rmdir(self.state["root"])
+        except OSError:
+            errmsg += "Failed to remove {} \n".format(self.state["root"])
+            pass
+
         if self.state.get("session"):
-            self.gc.delete(f"dm/session/{self.state['session']['_id']}")
+            try:
+                self.gc.delete(f"dm/session/{self.state['session']['_id']}")
+            except Exception:
+                errmsg += f"Failed to delete session {self.state['session']['_id']} \n"
+                pass
         self.state.clear()
+        if errmsg:
+            self.set_status(500)
+            self.write(errmsg)
 
     def source_path_bind(self, mount_type):
         if mount_type == MountTypes.home:
