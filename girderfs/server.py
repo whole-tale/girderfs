@@ -181,9 +181,10 @@ class MainHandler(tornado.web.RequestHandler):
                 dataset = self.state["tale"]["dataSet"]
 
             if protocol == MountProtocols.girderfs and "session" not in self.state:
-                self.state["session"] = self.gc.post(
-                    "dm/session", parameters={"dataSet": json.dumps(dataset)}
-                )
+                params = {"dataSet": json.dumps(dataset)}
+                if "run" not in self.state:
+                    params["taleId"] = self.state["tale"]["_id"]
+                self.state["session"] = self.gc.post("dm/session", parameters=params)
                 return self.state["session"], "wt_dms"
             elif protocol == MountProtocols.passthrough:
                 # We are assuming that dataset is a single folder
