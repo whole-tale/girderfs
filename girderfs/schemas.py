@@ -18,6 +18,7 @@ class MountProtocols:
     girderfs = "girderfs"
     passthrough = "passthrough"
     webdav = "webdav"
+    overlay = "overlay"
 
 
 class MountValidator:
@@ -55,6 +56,7 @@ class MountValidator:
                 if mount["protocol"] not in [
                     MountProtocols.bind,
                     MountProtocols.webdav,
+                    MountProtocols.overlay,
                 ]:
                     raise ValueError(
                         f"Invalid protocol for {MountTypes.run} mount: {mount['protocol']}"
@@ -98,6 +100,7 @@ mountSchema = {
                 MountProtocols.bind,
                 MountProtocols.girderfs,
                 MountProtocols.passthrough,
+                MountProtocols.overlay,
                 MountProtocols.webdav,
             ],
         },

@@ -111,6 +111,23 @@ class MainHandler(tornado.web.RequestHandler):
                     f"--girder-url={self.state['girderApiUrl']}/folder/{gcObj['_id']}/listing "
                     f"--token={self.gc.token} {destination}"
                 )
+            elif mount["protocol"] == MountProtocols.overlay:
+                lowerdir = os.path.join(
+                    os.environ["WT_VOLUMES_PATH"], self.source_path_overlay(mount["type"], "lower")
+                )
+                upperdir = os.path.join(
+                    os.environ["WT_VOLUMES_PATH"], self.source_path_overlay(mount["type"], "upper")
+                )
+                workdir = f"{upperdir}_workdir"
+                cmd = (
+                    "sudo mount -t overlay overlay -o "
+                    f"lowerdir={lowerdir},upperdir={upperdir},workdir={workdir}"
+                    ",index=off,xino=off,redirect_dir=off,metacopy=off "
+                    f"{destination}"
+                )
+                self.state["remove_dirs"] = [os.path.join(workdir, "work"), workdir]
+                os.makedirs(workdir, exist_ok=True)
+                os.makedirs(upperdir, exist_ok=True)
 
             subprocess.check_output(cmd, shell=True)
 
@@ -122,9 +139,9 @@ class MainHandler(tornado.web.RequestHandler):
                 cmd = f"umount {destination}"
             elif mount["protocol"] == MountProtocols.girderfs:
                 cmd = f"fusermount -u {destination}"
-            elif mount["protocol"] == MountProtocols.bind:
-                cmd = f"sudo umount {destination}"
-            elif mount["protocol"] == MountProtocols.passthrough:
+            elif mount["protocol"] in (
+                MountProtocols.bind, MountProtocols.overlay, MountProtocols.passthrough
+            ):
                 cmd = f"sudo umount {destination}"
             try:
                 subprocess.check_output(cmd, shell=True)
@@ -132,6 +149,16 @@ class MainHandler(tornado.web.RequestHandler):
             except (subprocess.CalledProcessError, OSError):
                 errmsg += "Failed to unmount {} \n".format(destination)
                 pass
+        try:
+            for entry in self.state["remove_dirs"]:
+                try:
+                   os.rmdir(entry)
+                except OSError:
+                    errmsg += "Failed to remove {} \n".format(entry)
+                    pass
+        except KeyError:
+            pass
+
         try:
             os.rmdir(self.state["root"])
         except OSError:
@@ -159,6 +186,16 @@ class MainHandler(tornado.web.RequestHandler):
         elif mount_type == MountTypes.workspace:
             tale = self.state["tale"]
             return f"workspaces/{tale['_id'][0]}/{tale['_id']}"
+
+    def source_path_overlay(self, mount_type, layer="lower"):
+        if mount_type == MountTypes.run:
+            if layer == "upper":
+                return self.source_path_bind(mount_type)
+            elif layer == "lower":
+                run = self.state["run"]
+                return os.path.join(
+                    "versions", run["taleId"][0:2], run["taleId"], run["runVersionId"], "workspace"
+                )
 
     def webdav_url(self, mount_type):
         if mount_type == MountTypes.home:
