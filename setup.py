@@ -38,6 +38,8 @@ setup(
         "console_scripts": [
             "girderfs = girderfs.__main__:main",
             "girderfs-server = girderfs.server:main",
+            "girderfs-mount = girderfs.mounter:mount",
+            "girderfs-umount = girderfs.mounter:umount",
         ]
     },
     install_requires=[
