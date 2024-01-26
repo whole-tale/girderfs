@@ -131,6 +131,10 @@ mountsSchema = {
             "description": "The api key for the girder api",
             "type": "string",
         },
+        "girderToken": {
+            "description": "The token for the girder api",
+            "type": "string",
+        },
         "root": {
             "description": "The root of the mounts collection",
             "type": "string",
@@ -161,8 +165,8 @@ mountsSchema = {
             "type": "string",
         },
     },
-    "required": ["mounts", "girderApiUrl", "girderApiKey", "root"],
-    "additionalProperties": False,
+    "required": ["mounts", "girderApiUrl", "root"],
+    "additionalProperties": True,
 }
 
 # Write example curl POST utilizing mountsSchema
