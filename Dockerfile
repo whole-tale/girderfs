@@ -31,7 +31,9 @@ RUN apt -qqy update \
   && apt autoremove -qqy \
   && apt -qqy clean \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
-  && echo "user_allow_other" >> /etc/fuse.conf
+  && echo "user_allow_other" >> /etc/fuse.conf \
+  && ln -s /proc/self/mounts /etc/mtab \
+  && useradd -u 1000 -g 100 --no-log-init -s /bin/bash -p $(openssl rand -base64 32) -m -r wtuser
 
 COPY . /app
 WORKDIR /app
