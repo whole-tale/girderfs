@@ -99,7 +99,7 @@ class MountHandler:
                 return self.state["session"], "wt_dms"
             elif protocol == MountProtocols.passthrough:
                 # We are assuming that dataset is a single folder
-                return self.gc.get(f"/folder/{dataset[0]['itemId']}"), ""
+                return self.state["tale"], ""
         elif mount_type == MountTypes.runs:
             return self.state["tale"], "wt_runs"
         return None, None
