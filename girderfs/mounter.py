@@ -1,8 +1,13 @@
-import os
 import json
+import logging
+import os
 import subprocess
+import time
+
+import psutil
 from girder_client import GirderClient
-from .schemas import MountTypes, MountValidator, MountProtocols
+
+from .schemas import MountProtocols, MountTypes, MountValidator
 
 
 class MountHandler:
@@ -81,7 +86,7 @@ class MountHandler:
 
     def mounttype_to_fs(self, protocol, mount_type):
         if mount_type == MountTypes.versions:
-            return self.state["tale"], "wt_versions"
+            return self.state["tale"], self.girderfs_flavor(mount_type)
         elif mount_type == MountTypes.data:
             dataset = None
             if "run" in self.state:
@@ -96,13 +101,22 @@ class MountHandler:
                 if "run" not in self.state:
                     params["taleId"] = self.state["tale"]["_id"]
                 self.state["session"] = self.gc.post("dm/session", parameters=params)
-                return self.state["session"], "wt_dms"
+                return self.state["session"], self.girderfs_flavor(mount_type)
             elif protocol == MountProtocols.passthrough:
                 # We are assuming that dataset is a single folder
                 return self.state["tale"], ""
         elif mount_type == MountTypes.runs:
-            return self.state["tale"], "wt_runs"
+            return self.state["tale"], self.girderfs_flavor(mount_type)
         return None, None
+
+    @staticmethod
+    def girderfs_flavor(mount_type):
+        if mount_type == MountTypes.versions:
+            return "wt_versions"
+        elif mount_type == MountTypes.data:
+            return "wt_dms"
+        elif mount_type == MountTypes.runs:
+            return "wt_runs"
 
     def mount(self, mount_def) -> None:
         destination = os.path.join(self.state["root"], mount_def["location"])
@@ -120,7 +134,9 @@ class MountHandler:
                 "opts": "-o uid=1000,gid=100,file_mode=0600,dir_mode=2700",
                 "source": girder_url + self.webdav_url(mount_def["type"]),
             }
-            cmd = 'echo "{user}\n{pass}" | sudo mount.davfs {opts} {source} {destination}'
+            cmd = (
+                'echo "{user}\n{pass}" | sudo mount.davfs {opts} {source} {destination}'
+            )
             cmd = cmd.format(**args)
         elif mount_def["protocol"] == MountProtocols.girderfs:
             cmd = (
@@ -133,7 +149,7 @@ class MountHandler:
             source = os.path.join(
                 os.environ["WT_VOLUMES_PATH"], self.source_path_bind(mount_def["type"])
             )
-            cmd = f"sudo mount --bind {source} {destination}"
+            cmd = f"mount --bind {source} {destination}"
         elif mount_def["protocol"] == MountProtocols.passthrough:
             cmd = (
                 "passthrough-fuse -o allow_other "
@@ -141,6 +157,7 @@ class MountHandler:
                 f"--token={self.gc.token} {destination}"
             )
 
+        logging.info(f"Mounting {mount_def['type']} at {destination}: {cmd=}")
         subprocess.check_output(cmd, shell=True)
 
     def mount_all(self):
@@ -156,20 +173,42 @@ class MountHandler:
             MountProtocols.bind,
             MountProtocols.passthrough,
         ):
-            cmd = f"sudo umount {destination}"
+            cmd = f"umount {destination}"
         elif mount_def["protocol"] == MountProtocols.girderfs:
             cmd = f"fusermount -u {destination}"
+
+        umount_count = 0
+        succeeded = not os.path.isdir(destination)
+        while not succeeded:
+            if umount_count > 5:
+                errmsg += f"Failed to unmount {destination} after 5 tries\n"
+                break
+            try:
+                logging.info(f"Unmounting {destination}: {cmd=} (try {umount_count}/5)")
+                subprocess.check_output(cmd, shell=True)
+                succeeded = True
+            except (subprocess.CalledProcessError, OSError):
+                errmsg += f"Failed to unmount {destination} ({umount_count})\n"
+                time.sleep(1)
+                umount_count += 1
+
+        for process in psutil.process_iter(["pid", "cmdline"]):
+            if process.info["cmdline"] and destination in process.info["cmdline"]:
+                logging.info(
+                    f"Killing process {process.info['cmdline']} with pid {process.info['pid']}"
+                )
+                process.kill()
+
         try:
-            subprocess.check_output(cmd, shell=True)
+            logging.info(f"Removing {destination}")
             os.rmdir(destination)
-        except (subprocess.CalledProcessError, OSError):
-            errmsg += "Failed to unmount {} \n".format(destination)
+        except OSError:
+            errmsg += "Failed to remove {} \n".format(destination)
             pass
         return errmsg
 
     def umount_all(self):
         errmsg = ""
-        self.get_girder_objects()
         for mount_def in self.state["mounts"]:
             errmsg += self.umount(mount_def)
         try:
@@ -178,11 +217,11 @@ class MountHandler:
             errmsg += "Failed to remove {} \n".format(self.state["root"])
             pass
 
-        if self.state.get("session"):
+        if self.state.get("sessionId"):
             try:
-                self.gc.delete(f"dm/session/{self.state['session']['_id']}")
+                self.gc.delete(f"dm/session/{self.state['sessionId']}")
             except Exception:
-                errmsg += f"Failed to delete session {self.state['session']['_id']} \n"
+                errmsg += f"Failed to delete session {self.state['sessionId']} \n"
                 pass
         return errmsg
 
@@ -192,7 +231,9 @@ def mount():
 
 
 def umount():
-    MountHandler.from_environment_variable().umount_all()
+    errmsg = MountHandler.from_environment_variable().umount_all()
+    if errmsg:
+        print(errmsg, file=sys.stderr)
 
 
 if __name__ == "__main__":

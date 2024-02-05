@@ -1,5 +1,6 @@
 FROM python:3.10-slim-bullseye
 
+COPY ./passthrough.c /tmp/dumbthrough.c
 RUN apt -qqy update \
   && apt install --no-install-recommends -qqy \ 
     fuse3 \
@@ -20,6 +21,7 @@ RUN apt -qqy update \
   && cd /tmp/passthrough \
   && make \
   && make install \
+  && gcc -o /usr/local/bin/dumbthrough-fuse -O2 -g -Wall `pkg-config --cflags fuse3` /tmp/dumbthrough.c `pkg-config --libs fuse3` \
   && cd / \
   && rm -rf /tmp/passthrough \
   && apt remove -qqy \
@@ -38,5 +40,5 @@ RUN apt -qqy update \
 COPY . /app
 WORKDIR /app
 
-RUN pip install --no-cache-dir . && pip install tornado jsonschema --no-cache-dir
+RUN pip install --no-cache-dir . && pip install tornado jsonschema psutil --no-cache-dir
 ENTRYPOINT ["/usr/bin/tini", "--", "girderfs-server"]
